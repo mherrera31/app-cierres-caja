@@ -93,7 +93,6 @@ else:
         df_categorias,
         column_config=column_config,
         # --- CORRECCIÓN DE BUG (InvalidWidthError) ---
-        # Reemplazamos 'None' con 'stretch' para usar el ancho completo
         width='stretch', 
         hide_index=True,
         key="editor_categorias"
