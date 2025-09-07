@@ -1,6 +1,15 @@
 # pages/3_Cierre_de_Caja.py
 
 import streamlit as st
+import sys
+import os
+
+# --- BLOQUE DE CORRECCIÓN DE IMPORTPATH ---
+script_dir = os.path.dirname(__file__)
+project_root = os.path.abspath(os.path.join(script_dir, '..'))
+sys.path.append(project_root)
+# --- FIN DEL BLOQUE ---
+
 import database
 # --- Importamos TODOS los módulos de nuestras pestañas ---
 from cierre_web.form_caja_inicial import render_form_inicial
@@ -9,7 +18,7 @@ from cierre_web.tab_gastos import render_tab_gastos
 from cierre_web.tab_ingresos_adic import render_tab_ingresos_adic
 from cierre_web.tab_resumen import render_tab_resumen
 from cierre_web.tab_caja_final import render_tab_caja_final
-from cierre_web.tab_verificacion import render_tab_verificacion # <-- AÑADIDO
+from cierre_web.tab_verificacion import render_tab_verificacion 
 
 # --- GUARDIÁN DE SEGURIDAD (Permite a TODOS los logueados) ---
 if not st.session_state.get("autenticado"):
@@ -58,6 +67,7 @@ sucursal_seleccionada_nombre = st.selectbox(
 if sucursal_seleccionada_nombre != st.session_state.cierre_sucursal_seleccionada_nombre:
     st.session_state['cierre_actual_objeto'] = None
     st.session_state['cierre_sucursal_seleccionada_nombre'] = sucursal_seleccionada_nombre
+    st.session_state.pop('resumen_calculado', None) 
     st.rerun() 
 
 
@@ -119,7 +129,6 @@ if st.session_state.get('cierre_actual_objeto') is None:
         # 3. Si no hay ABIERTO ni CERRADO (o si el usuario presionó "Crear Nuevo")
         if (not cierre_abierto and not cierre_cerrado) or st.session_state.get('iniciar_nuevo_cierre_flag'):
             
-            # Llamamos a la función de renderizado del otro archivo
             nuevo_cierre_creado = render_form_inicial(usuario_id_actual, sucursal_id_actual)
             
             if nuevo_cierre_creado:
@@ -133,20 +142,17 @@ if st.session_state.get('cierre_actual_objeto') is None:
 
 
 # === EL WIZARD DE PESTAÑAS (TABS) (VERSIÓN COMPLETA) ===
-# Si llegamos a ESTE punto, significa que ya tenemos un cierre cargado en st.session_state.get('cierre_actual_objeto')
-
 if st.session_state.get('cierre_actual_objeto'):
     st.markdown("---")
     st.header(f"Estás trabajando en: {sucursal_seleccionada_nombre}")
     
-    # Creamos las pestañas (Tabs)
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "PASO 1: Caja Inicial", 
         "PASO 2: Gastos", 
         "PASO 3: Ingresos Adic.", 
         "PASO 4: Resumen", 
         "PASO 5: Caja Final", 
-        "PASO 6: Verificación y Finalizar" # <-- Nombre actualizado
+        "PASO 6: Verificación y Finalizar" 
     ])
 
     with tab1:
@@ -165,5 +171,4 @@ if st.session_state.get('cierre_actual_objeto'):
         render_tab_caja_final()
         
     with tab6:
-        # --- CÓDIGO ACTUALIZADO ---
         render_tab_verificacion()
