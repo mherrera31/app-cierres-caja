@@ -76,7 +76,7 @@ def render_tab_caja_final():
     st.info(f"Total Teórico (calculado en Paso 4): ${saldo_teorico:,.2f}")
     st.markdown("Ingrese el conteo físico de todo el efectivo en caja para calcular la diferencia.")
     
-    # --- CORRECCIÓN DE BUG (AttributeError) ---
+    # --- CORRECCIÓN DE BUG (AttributeError - Línea 89) ---
     datos_saldo_final_guardado = cierre_actual.get('saldo_final_detalle') or {}
     detalle_guardado = datos_saldo_final_guardado.get('detalle', {})
     # --- FIN DE LA CORRECCIÓN ---
@@ -185,7 +185,7 @@ def render_tab_caja_final():
     with col_res1:
         with st.container(border=True):
             st.subheader("Monto a Depositar")
-            # --- CORRECCIÓN DE BUG (Label Vacío) ---
+            # --- CORRECCIÓN DE ADVERTENCIA (Label Vacío) ---
             st.metric(label="Monto Total a Depositar:", value=f"${float(total_deposito_guardado or 0):,.2f}", label_visibility="collapsed") 
 
     with col_res2:
