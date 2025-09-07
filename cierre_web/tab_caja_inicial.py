@@ -4,7 +4,6 @@ import streamlit as st
 import database
 from decimal import Decimal
 
-# Copiamos la lista de denominaciones (debe ser idéntica a la del formulario inicial)
 DENOMINACIONES = [
     {'nombre': 'Monedas de $0.01', 'valor': 0.01},
     {'nombre': 'Monedas de $0.05', 'valor': 0.05},
@@ -21,12 +20,6 @@ DENOMINACIONES = [
 ]
 
 def render_tab_inicial():
-    """
-    Renderiza el contenido de la pestaña "Caja Inicial", permitiendo la EDICIÓN
-    del conteo inicial que ya está cargado en la sesión.
-    """
-
-    # Obtenemos el cierre que ya fue cargado por la página principal
     cierre_actual = st.session_state.get('cierre_actual_objeto')
     if not cierre_actual:
         st.error("Error: No hay ningún cierre cargado en la sesión.")
@@ -34,8 +27,10 @@ def render_tab_inicial():
 
     cierre_id = cierre_actual['id']
 
-    # Obtenemos los detalles guardados para pre-llenar el formulario
-    detalle_guardado = cierre_actual.get('saldo_inicial_detalle', {}).get('detalle', {})
+    # --- CORRECCIÓN DE BUG (AttributeError) ---
+    datos_saldo_inicial_guardado = cierre_actual.get('saldo_inicial_detalle') or {}
+    detalle_guardado = datos_saldo_inicial_guardado.get('detalle', {})
+    # --- FIN DE LA CORRECCIÓN ---
     
     st.info("Puedes editar las cantidades de tu conteo inicial y guardar los cambios.")
 
@@ -44,53 +39,46 @@ def render_tab_inicial():
         inputs_conteo = {}
         total_calculado = Decimal('0.00')
 
-        st.markdown("**Billetes**")
-        cols_billetes = st.columns(4)
-        idx = 0
-        for den in DENOMINACIONES:
-            if "Billete" in den['nombre']:
-                col = cols_billetes[idx % 4]
-                # Buscamos el valor guardado para esta denominación
-                cantidad_guardada = detalle_guardado.get(den['nombre'], {}).get('cantidad', 0)
-                
-                cantidad = col.number_input(
-                    den['nombre'], 
-                    min_value=0, 
-                    step=1, 
-                    value=cantidad_guardada, # <-- Aquí pre-llenamos el valor
-                    key=f"den_edit_{den['nombre']}"
-                )
-                inputs_conteo[den['nombre']] = {"cantidad": cantidad, "valor": den['valor']}
-                total_calculado += Decimal(str(cantidad)) * Decimal(str(den['valor']))
-                idx += 1
-
         st.markdown("**Monedas**")
-        cols_monedas = st.columns(4)
-        idx = 0
         for den in DENOMINACIONES:
             if "Moneda" in den['nombre']:
-                col = cols_monedas[idx % 4]
+                col_lab, col_inp = st.columns([2, 1])
+                col_lab.write(den['nombre'])
                 cantidad_guardada = detalle_guardado.get(den['nombre'], {}).get('cantidad', 0)
-                
-                cantidad = col.number_input(
-                    den['nombre'], 
+                cantidad = col_inp.number_input(
+                    label=f"Input_Edit_{den['nombre']}", 
+                    label_visibility="collapsed", 
                     min_value=0, 
                     step=1, 
-                    value=cantidad_guardada, # <-- Pre-llenado
+                    value=cantidad_guardada,
                     key=f"den_edit_{den['nombre']}"
                 )
                 inputs_conteo[den['nombre']] = {"cantidad": cantidad, "valor": den['valor']}
                 total_calculado += Decimal(str(cantidad)) * Decimal(str(den['valor']))
-                idx += 1
+
+        st.markdown("**Billetes**")
+        for den in DENOMINACIONES:
+            if "Billete" in den['nombre']:
+                col_lab, col_inp = st.columns([2, 1])
+                col_lab.write(den['nombre'])
+                cantidad_guardada = detalle_guardado.get(den['nombre'], {}).get('cantidad', 0)
+                cantidad = col_inp.number_input(
+                    label=f"Input_Edit_{den['nombre']}", 
+                    label_visibility="collapsed", 
+                    min_value=0, 
+                    step=1, 
+                    value=cantidad_guardada,
+                    key=f"den_edit_{den['nombre']}"
+                )
+                inputs_conteo[den['nombre']] = {"cantidad": cantidad, "valor": den['valor']}
+                total_calculado += Decimal(str(cantidad)) * Decimal(str(den['valor']))
         
         st.divider()
         st.header(f"Total Contado Inicial: ${total_calculado:,.2f}")
         
         submitted = st.form_submit_button("Guardar Cambios en Caja Inicial", type="primary")
 
-    # --- Lógica de Guardado (POST-Formulario) ---
     if submitted:
-        # 1. Construir el diccionario de datos (igual que en el form_caja_inicial)
         datos_conteo_actualizados = {"total": float(total_calculado), "detalle": {}}
         for nombre, data in inputs_conteo.items():
             if data['cantidad'] > 0:
@@ -99,18 +87,14 @@ def render_tab_inicial():
                     "subtotal": float(Decimal(str(data['cantidad'])) * Decimal(str(data['valor'])))
                 }
         
-        # 2. Llamar a la función de ACTUALIZAR de la DB
         with st.spinner("Actualizando saldo inicial..."):
             _, error_db = database.actualizar_saldo_inicial(cierre_id, datos_conteo_actualizados)
 
         if error_db:
             st.error(f"No se pudo actualizar el saldo: {error_db}")
         else:
-            # 3. ACTUALIZAR EL OBJETO EN MEMORIA (Session State)
-            # Esto es vital para que las otras pestañas (como Resumen) vean el cambio
             st.session_state.cierre_actual_objeto["saldo_inicial_detalle"] = datos_conteo_actualizados
             st.session_state.cierre_actual_objeto["saldo_inicial_efectivo"] = datos_conteo_actualizados['total']
             
             st.success("¡Saldo inicial actualizado con éxito!")
-            # Forzamos un rerun para asegurar que el Paso 4 (Resumen) se refresque si ya fue cargado
             st.rerun()
