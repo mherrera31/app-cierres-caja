@@ -92,8 +92,9 @@ else:
     edited_df = st.data_editor(
         df_categorias,
         column_config=column_config,
-        # --- CORRECCIÓN DE ADVERTENCIA (use_container_width -> width) ---
-        width=None, # O 'stretch'
+        # --- CORRECCIÓN DE BUG (InvalidWidthError) ---
+        # Reemplazamos 'None' con 'stretch' para usar el ancho completo
+        width='stretch', 
         hide_index=True,
         key="editor_categorias"
     )
