@@ -3,17 +3,18 @@
 import streamlit as st
 import sys
 import os
-import database  # Esta importación ahora funcionará
 import pandas as pd
 from datetime import datetime
 
-# --- BLOQUE DE CORRECCIÓN DE IMPORTPATH (AÑADIDO) ---
+# --- BLOQUE DE CORRECCIÓN DE IMPORTPATH (VITAL) ---
 script_dir = os.path.dirname(__file__)
 project_root = os.path.abspath(os.path.join(script_dir, '..'))
 sys.path.append(project_root)
 # --- FIN DEL BLOQUE ---
 
-# --- GUARDIÁN DE SEGURIDAD (AÑADIDO) ---
+import database  # Esta importación ahora funcionará
+
+# --- GUARDIÁN DE SEGURIDAD ---
 if not st.session_state.get("autenticado"):
     st.error("Acceso denegado. 🚫 Por favor, inicie sesión desde la página principal.")
     st.stop() 
