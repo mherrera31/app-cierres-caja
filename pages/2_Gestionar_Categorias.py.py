@@ -1,17 +1,8 @@
 # pages/2_Gestionar_Categorias.py
 
 import streamlit as st
-import sys
-import os
 import database
 import pandas as pd
-
-# --- BLOQUE DE CORRECCIÓN DE IMPORTPATH (AÑADIDO) ---
-script_dir = os.path.dirname(__file__)
-project_root = os.path.abspath(os.path.join(script_dir, '..'))
-sys.path.append(project_root)
-# --- FIN DEL BLOQUE ---
-
 
 # --- GUARDIÁN DE SEGURIDAD ---
 if not st.session_state.get("autenticado"):
