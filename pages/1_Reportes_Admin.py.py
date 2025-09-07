@@ -1,16 +1,8 @@
 # pages/1_Reportes_Admin.py
 
 import streamlit as st
-import sys
-import os
 import pandas as pd
 from datetime import datetime
-
-# --- BLOQUE DE CORRECCIÓN DE IMPORTPATH (VITAL) ---
-script_dir = os.path.dirname(__file__)
-project_root = os.path.abspath(os.path.join(script_dir, '..'))
-sys.path.append(project_root)
-# --- FIN DEL BLOQUE ---
 
 import database  # Esta importación ahora funcionará
 
