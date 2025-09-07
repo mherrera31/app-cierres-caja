@@ -186,8 +186,7 @@ def render_tab_verificacion():
         for nombre_huerfano in datos_verif['huerfanos']:
             total_h = datos_verif['totales_ventas'].get(nombre_huerfano, Decimal('0.00'))
             if total_h > 0:
-                # Corregimos advertencia de label vacía
-                st.metric(label=f"{nombre_huerfano.title()} (Venta)", value=f"${total_h:,.2f}")
+                st.metric(label=f"{nombre_huerfano.title()} (Venta)", value=f"${total_h:,.2f}") # Label añadido
                 json_registros_informativos.append({
                     "metodo": nombre_huerfano.title(),
                     "fuente": "Ventas (Huérfano)",
@@ -199,8 +198,7 @@ def render_tab_verificacion():
         for nombre_lower, total_ing in datos_verif['totales_ing_adic'].items():
             if nombre_lower != 'efectivo' and total_ing > 0:
                 ingresos_no_cash = True
-                 # Corregimos advertencia de label vacía
-                st.metric(label=f"{nombre_lower.title()} (Ingreso Adic.)", value=f"${total_ing:,.2f}")
+                st.metric(label=f"{nombre_lower.title()} (Ingreso Adic.)", value=f"${total_ing:,.2f}") # Label añadido
                 json_registros_informativos.append({
                     "metodo": nombre_lower.title(),
                     "fuente": "Ingreso Adicional",
@@ -216,6 +214,7 @@ def render_tab_verificacion():
             for nombre_lower, data in widget_data.items():
                 archivo_subido = data["file_widget"]
                 if archivo_subido is not None:
+                    # Usamos un archivo temporal para guardar el archivo subido y obtener una ruta
                     with tempfile.NamedTemporaryFile(delete=False, suffix=archivo_subido.name) as tmp_file:
                         tmp_file.write(archivo_subido.getvalue())
                         ruta_temporal = tmp_file.name
@@ -227,18 +226,20 @@ def render_tab_verificacion():
                         ruta_temporal
                     )
                     
-                    os.remove(ruta_temporal) 
+                    os.remove(ruta_temporal) # Borramos el archivo temporal
 
                     if err_subida:
                         st.error(f"FALLO AL SUBIR FOTO para {nombre_lower}: {err_subida}")
                         hubo_error_subida = True
                     else:
                         st.success(f"Foto para {nombre_lower} subida con éxito.")
+                        # Actualizamos el JSON que vamos a guardar
                         for item in json_verificacion_con_match:
                             if item['metodo'].lower() == nombre_lower:
                                 item['url_foto'] = url_publica
                                 break
             
+            # Si una URL ya estaba guardada y no se subió una nueva, mantenemos la antigua
             for item in json_verificacion_con_match:
                 if item['url_foto'] is None: 
                     url_guardada_previa = widget_data[item['metodo'].lower()].get('url_guardada')
@@ -257,8 +258,9 @@ def render_tab_verificacion():
                     st.error(f"Error al guardar datos de verificación en DB: {err_db}")
                 else:
                     st.success("¡Verificación de pagos guardada con éxito!")
+                    # Actualizamos el estado de la sesión
                     st.session_state.cierre_actual_objeto['verificacion_pagos_detalle'] = final_data_json
-                    cargar_datos_verificacion.clear() 
+                    cargar_datos_verificacion.clear() # Limpiamos cache
                     st.rerun()
 
     st.divider()
@@ -293,19 +295,18 @@ def render_tab_verificacion():
             else:
                 st.success("¡CIERRE FINALIZADO CON ÉXITO! 🎉")
                 st.balloons()
+                # Limpiamos el estado de sesión para forzar la recarga del loader en la próxima acción
                 st.session_state['cierre_actual_objeto'] = None
                 st.session_state['cierre_sucursal_seleccionada_nombre'] = None
                 st.session_state.pop('resumen_calculado', None) 
                 
                 cargar_datos_verificacion.clear()
-                # Limpiamos todos los caches de los otros tabs tambien
                 try:
-                    # Importamos los otros modulos solo para limpiar sus caches
                     from cierre_web.tab_gastos import cargar_gastos_registrados
                     from cierre_web.tab_ingresos_adic import cargar_ingresos_existentes
                     cargar_gastos_registrados.clear()
                     cargar_ingresos_existentes.clear()
                 except ImportError:
-                    pass # No importa si falla, solo es limpieza
+                    pass 
                 
                 st.rerun()
