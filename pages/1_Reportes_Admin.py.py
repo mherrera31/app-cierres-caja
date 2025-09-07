@@ -43,8 +43,8 @@ def mostrar_reporte_denominaciones(titulo, data_dict):
         df = pd.DataFrame.from_dict(detalle, orient='index').reset_index()
         column_names = ["Denominación", "Cantidad", "Subtotal"]
         df.columns = column_names[:len(df.columns)]
-        # --- CORRECCIÓN DE ADVERTENCIA (use_container_width -> width) ---
-        st.dataframe(df, width=None, hide_index=True) # Usamos width=None para tamaño automático o 'stretch'
+        # --- CORRECCIÓN DE BUG (InvalidWidthError) ---
+        st.dataframe(df, width='stretch', hide_index=True)
     except Exception as e:
         st.json(detalle)
         st.error(f"Error al renderizar dataframe: {e}")
@@ -108,8 +108,8 @@ def mostrar_reporte_gastos(cierre_id):
                 "Notas": gasto.get('notas')
             })
         
-        # --- CORRECCIÓN DE ADVERTENCIA (use_container_width -> width) ---
-        st.dataframe(df_data, width=None) # O 'stretch'
+        # --- CORRECCIÓN DE BUG (InvalidWidthError) ---
+        st.dataframe(df_data, width='stretch')
         st.metric("TOTAL GASTOS", f"${total_gastos:,.2f}")
 
 def comando_reabrir(cierre_id):
