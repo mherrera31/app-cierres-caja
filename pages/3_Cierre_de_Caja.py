@@ -1,14 +1,6 @@
 # pages/3_Cierre_de_Caja.py
 
 import streamlit as st
-import sys
-import os
-
-# --- BLOQUE DE CORRECCIÓN DE IMPORTPATH ---
-script_dir = os.path.dirname(__file__)
-project_root = os.path.abspath(os.path.join(script_dir, '..'))
-sys.path.append(project_root)
-# --- FIN DEL BLOQUE ---
 
 import database
 # --- Importamos TODOS los módulos de nuestras pestañas ---
