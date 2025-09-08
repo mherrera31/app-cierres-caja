@@ -419,3 +419,61 @@ def eliminar_gasto_caja(gasto_id):
         return response.data, None
     except Exception as e:
         return None, f"Error al eliminar el gasto: {e}"
+
+# database.py (AÑADIR ESTO AL FINAL)
+
+# --- FUNCIONES DE ADMINISTRACIÓN PARA SOCIOS (CON HARD DELETE) ---
+
+def admin_get_todos_socios():
+    """ Obtiene todos los socios para el editor de admin """
+    try:
+        response = supabase.table('socios') \
+            .select('id, nombre, afecta_conteo_efectivo, requiere_verificacion_voucher') \
+            .order('nombre', desc=False) \
+            .execute()
+        return response.data, None
+    except Exception as e:
+        return [], f"Error al obtener todos los socios: {e}"
+
+def admin_crear_socio(nombre, afecta_efectivo, requiere_voucher):
+    """ Crea un nuevo socio (Sin campo is_activo) """
+    if not nombre:
+        return None, "El nombre no puede estar vacío."
+    try:
+        datos = {
+            "nombre": nombre, 
+            "afecta_conteo_efectivo": afecta_efectivo,
+            "requiere_verificacion_voucher": requiere_voucher
+        }
+        response = supabase.table('socios').insert(datos).execute()
+        return response.data, None
+    except Exception as e:
+        if "23505" in str(e): # Error de violación de restricción única
+            return None, f"El socio '{nombre}' ya existe."
+        return None, f"Error al crear el socio: {e}"
+
+def admin_actualizar_socio_reglas(socio_id, data_dict):
+    """
+    Actualiza el nombre y las reglas de un socio.
+    data_dict debe contener: nombre, afecta_conteo_efectivo, requiere_verificacion_voucher
+    """
+    try:
+        response = supabase.table('socios').update(data_dict).eq('id', socio_id).execute()
+        return response.data, None
+    except Exception as e:
+        if "23505" in str(e):
+             return None, "Error: Ese nombre de socio ya existe."
+        return None, f"Error al actualizar el socio: {e}"
+
+def admin_eliminar_socio(socio_id):
+    """
+    ELIMINA PERMANENTEMENTE un socio de la base de datos (HARD DELETE).
+    Esto fallará si el socio tiene registros asociados (ej: en ingresos_adicionales).
+    """
+    try:
+        response = supabase.table('socios').delete().eq('id', socio_id).execute()
+        return response.data, None
+    except Exception as e:
+        if "23503" in str(e): # Error de Foreign Key
+             return None, "Error: No se puede eliminar. Este socio tiene registros históricos (ingresos) asociados."
+        return None, f"Error al eliminar el socio: {e}"
