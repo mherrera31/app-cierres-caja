@@ -828,3 +828,31 @@ def finalizar_cierre_cde(cierre_cde_id, con_discrepancia=False):
 
 # --- FIN DE FUNCIONES CIERRE CDE ---
 
+# database.py (AÑADIR ESTA NUEVA FUNCIÓN AL FINAL)
+
+def admin_buscar_cierres_cde_filtrados(fecha_inicio, fecha_fin, sucursal_id=None, usuario_id=None):
+    """
+    Busca y filtra todos los cierres de CDE (solo el módulo de verificación).
+    """
+    try:
+        query = supabase.table('cierres_cde').select(
+            '*, perfiles(nombre), sucursales(sucursal)'
+        )
+
+        if fecha_inicio:
+            query = query.gte('fecha_operacion', fecha_inicio)
+        if fecha_fin:
+            query = query.lte('fecha_operacion', fecha_fin)
+            
+        if sucursal_id:
+            query = query.eq('sucursal_id', sucursal_id)
+
+        if usuario_id:
+            query = query.eq('usuario_id', usuario_id)
+
+        response = query.order('fecha_operacion', desc=True).execute()
+        return response.data, None
+
+    except Exception as e:
+        return [], f"Error al buscar cierres CDE filtrados: {e}"
+
