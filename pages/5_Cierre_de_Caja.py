@@ -1,5 +1,5 @@
-# pages/3_Cierre_de_Caja.py
-# VERSIÓN CONSOLIDADA (Corregido el NameError 'sig_guardado' en tab_caja_final)
+# pages/5_Cierre_de_Caja.py
+# VERSIÓN CONSOLIDADA Y FINAL: Incluye Gastos (Batch Delete), Tab Delivery (Nuevo) y Tab Compras (Nuevo)
 
 import streamlit as st
 import database
@@ -297,25 +297,34 @@ def render_tab_gastos():
             key="editor_gastos"
         )
 
-        try:
-            fila_eliminada = (edited_df_gastos["Eliminar"] == True) & (df_original["Eliminar"] == False)
-            if fila_eliminada.any():
-                gasto_id_a_eliminar = edited_df_gastos.loc[fila_eliminada, "ID"].iloc[0]
-                gasto_nombre = edited_df_gastos.loc[fila_eliminada, "Categoría"].iloc[0]
-                gasto_monto = edited_df_gastos.loc[fila_eliminada, "Monto"].iloc[0]
-                st.warning(f"¿Seguro que deseas eliminar el gasto de {gasto_nombre} por ${gasto_monto:,.2f}?")
-                if st.button("Confirmar Eliminación"):
-                    with st.spinner("Eliminando gasto..."):
-                        _, err_del = database.eliminar_gasto_caja(gasto_id_a_eliminar)
+        # --- LÓGICA DE ELIMINACIÓN POR LOTES (BATCH DELETE) ---
+        if st.button("Eliminar Gastos Seleccionados", type="primary", key="btn_eliminar_gastos"):
+            
+            filas_para_eliminar = edited_df_gastos[edited_df_gastos["Eliminar"] == True]
+            
+            if filas_para_eliminar.empty:
+                st.info("No se seleccionó ningún gasto para eliminar (marca el ganchito 'Eliminar' en la fila).")
+            else:
+                total_a_eliminar = len(filas_para_eliminar)
+                st.warning(f"Se eliminarán {total_a_eliminar} registros de gastos. Esta acción es irreversible.")
+                
+                errores = []
+                with st.spinner(f"Eliminando {total_a_eliminar} gastos..."):
+                    for index, fila in filas_para_eliminar.iterrows():
+                        gasto_id = fila["ID"]
+                        _, err_del = database.eliminar_gasto_caja(gasto_id)
                         if err_del:
-                            st.error(f"Error al eliminar: {err_del}")
-                        else:
-                            st.success("Gasto eliminado.")
-                            cargar_gastos_registrados.clear()
-                            st.session_state.pop('resumen_calculado', None) 
-                            st.rerun()
-        except Exception as e:
-            st.error(f"Ocurrió un error procesando la eliminación: {e}")
+                            errores.append(f"Gasto ID {gasto_id}: {err_del}")
+                
+                if errores:
+                    st.error("Ocurrieron errores durante la eliminación:")
+                    st.json(errores)
+                else:
+                    st.success(f"¡{total_a_eliminar} gastos eliminados con éxito!")
+                    # Limpiar todos los cachés relevantes
+                    cargar_gastos_registrados.clear()
+                    st.session_state.pop('resumen_calculado', None) 
+                    st.rerun()
 
         st.metric(label="Total Gastado (Efectivo)", value=f"${total_gastos:,.2f}")
 
@@ -407,9 +416,8 @@ def render_tab_ingresos_adic():
         else:
             st.info("No se detectaron cambios para guardar.")
 
-# pages/3_Cierre_de_Caja.py (AÑADIR ESTAS DOS FUNCIONES)
 
-# --- INICIO BLOQUE DELIVERY ---
+# --- INICIO BLOQUE DELIVERY (NUEVO MÓDULO) ---
 @st.cache_data(ttl=15) 
 def cargar_deliveries_registrados(cierre_id):
     """ Carga el log de la tabla 'cierre_delivery' para el reporte de ganancias """
@@ -472,7 +480,6 @@ def render_tab_delivery():
     cierre_id = cierre_actual['id']
     usuario_id = st.session_state['perfil']['id']
     sucursal_id = cierre_actual['sucursal_id']
-    # Esta variable la guardamos cuando seleccionamos sucursal (línea 1025)
     sucursal_nombre = st.session_state.get('cierre_sucursal_seleccionada_nombre', 'N/A')
 
     opciones_origen, repartidor_cat_id = cargar_dependencias_delivery()
@@ -524,7 +531,6 @@ def render_tab_delivery():
                 
         if err_delivery:
             st.error(f"Error al registrar el reporte de delivery: {err_delivery}")
-            # (Aquí faltaría lógica para borrar el gasto si el reporte falla, pero es complejo)
         else:
             st.success("Delivery añadido con éxito.")
             cargar_deliveries_registrados.clear() 
@@ -559,39 +565,36 @@ def render_tab_delivery():
             width='stretch', hide_index=True, key="editor_deliveries"
         )
 
-         # Botón principal para procesar eliminaciones (acepta los "ganchitos")
-    if st.button("Eliminar Registros Seleccionados", type="primary"):
+        # Lógica de eliminación por lotes (con el botón que aprobaste)
+        if st.button("Eliminar Registros Seleccionados", type="primary", key="btn_eliminar_delivery"):
             
-        filas_para_eliminar = edited_df_del[edited_df_del["Eliminar"] == True]
+            filas_para_eliminar = edited_df_del[edited_df_del["Eliminar"] == True]
             
-        if filas_para_eliminar.empty:
-            st.info("No se seleccionó ningún registro para eliminar (marca el ganchito 'Eliminar' en la fila).")
-        else:
-            total_a_eliminar = len(filas_para_eliminar)
-            st.warning(f"Se eliminarán {total_a_eliminar} registros (y sus gastos asociados). Esta acción es irreversible.")
-                
-            errores = []
-            with st.spinner(f"Eliminando {total_a_eliminar} registros..."):
-                for index, fila in filas_para_eliminar.iterrows():
-                    del_id = fila["ID"]
-                    gasto_id = fila["Gasto_ID"]
-                        
-                    _, err_del = database.eliminar_delivery_completo(del_id, gasto_id)
-                    if err_del:
-                        errores.append(f"Fila ID {del_id}: {err_del}")
-                
-            if errores:
-                st.error("Ocurrieron errores durante la eliminación:")
-                st.json(errores)
+            if filas_para_eliminar.empty:
+                st.info("No se seleccionó ningún registro para eliminar (marca el ganchito 'Eliminar' en la fila).")
             else:
-                st.success(f"¡{total_a_eliminar} registros eliminados con éxito!")
-                    # Limpiar todos los cachés relevantes
-                cargar_deliveries_registrados.clear()
-                cargar_gastos_registrados.clear()
-                st.session_state.pop('resumen_calculado', None) 
-                st.rerun()
-        except Exception as e:
-            st.error(f"Ocurrió un error procesando la eliminación: {e}")
+                total_a_eliminar = len(filas_para_eliminar)
+                st.warning(f"Se eliminarán {total_a_eliminar} registros (y sus gastos asociados). Esta acción es irreversible.")
+                
+                errores = []
+                with st.spinner(f"Eliminando {total_a_eliminar} registros..."):
+                    for index, fila in filas_para_eliminar.iterrows():
+                        del_id = fila["ID"]
+                        gasto_id = fila["Gasto_ID"]
+                        
+                        _, err_del = database.eliminar_delivery_completo(del_id, gasto_id)
+                        if err_del:
+                            errores.append(f"Fila ID {del_id}: {err_del}")
+                
+                if errores:
+                    st.error("Ocurrieron errores durante la eliminación:")
+                    st.json(errores)
+                else:
+                    st.success(f"¡{total_a_eliminar} registros eliminados con éxito!")
+                    cargar_deliveries_registrados.clear()
+                    cargar_gastos_registrados.clear()
+                    st.session_state.pop('resumen_calculado', None) 
+                    st.rerun()
 
     # --- Resumen de Ganancia (Reporte) ---
     st.metric("Total Cobrado (Informativo)", f"${total_cobrado:,.2f}")
@@ -604,6 +607,133 @@ def render_tab_delivery():
         delta_color="normal" if ganancia_neta >= 0 else "inverse"
     )
 # --- FIN BLOQUE DELIVERY ---
+
+
+# --- INICIO BLOQUE COMPRAS (NUEVO MÓDULO INFORMATIVO) ---
+@st.cache_data(ttl=15) 
+def cargar_compras_registradas(cierre_id):
+    """ Carga el log de la tabla 'cierre_compras' para el reporte de ganancias/ahorros """
+    compras_data, err = database.obtener_compras_del_cierre(cierre_id)
+    if err:
+        st.error(f"Error cargando registros de compras: {err}")
+        return pd.DataFrame(), 0.0, 0.0
+
+    if not compras_data:
+        return pd.DataFrame(columns=["Calculado", "Costo Real", "Ahorro/Ganancia", "Notas", "ID"]), 0.0, 0.0
+
+    df_data = []
+    total_calculado = 0.0
+    total_costo_real = 0.0
+    
+    for item in compras_data:
+        calculado = float(item.get('valor_calculado', 0))
+        costo = float(item.get('costo_real', 0))
+        ganancia = calculado - costo
+        
+        total_calculado += calculado
+        total_costo_real += costo
+        
+        df_data.append({
+            "Calculado": calculado,
+            "Costo Real": costo,
+            "Ahorro/Ganancia": ganancia,
+            "Notas": item.get('notas', ''),
+            "ID": item['id']
+        })
+    
+    df = pd.DataFrame(df_data)
+    return df, total_calculado, total_costo_real
+
+def render_tab_compras():
+    cierre_actual = st.session_state.get('cierre_actual_objeto')
+    cierre_id = cierre_actual['id']
+    usuario_id = st.session_state['perfil']['id']
+    sucursal_id = cierre_actual['sucursal_id']
+
+    st.subheader("Registrar Compra (Informativo)")
+    st.info("Este módulo es solo para registro y reportes. **No afecta el saldo de caja** (esos gastos deben registrarse en 'Paso 2: Gastos').")
+
+    with st.form(key="form_nueva_compra", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        valor_calculado = col1.number_input("Valor Calculado/Estimado ($)", min_value=0.0, step=0.01, format="%.2f")
+        costo_real = col2.number_input("Costo Real Pagado ($)", min_value=0.01, step=0.01, format="%.2f")
+        notas_compra = st.text_input("Notas (Opcional, ej: Artículo, Proveedor)")
+        
+        submit_compra = st.form_submit_button("Añadir Registro de Compra", type="primary")
+
+    if submit_compra:
+        with st.spinner("Registrando compra..."):
+            _, error_db = database.registrar_compra(
+                cierre_id, usuario_id, sucursal_id, 
+                valor_calculado, costo_real, notas_compra
+            )
+        if error_db:
+            st.error(f"Error al registrar compra: {error_db}")
+        else:
+            st.success("Registro de compra añadido.")
+            cargar_compras_registradas.clear() # Limpiar caché de compras
+            st.rerun()
+
+    # --- Mostrar la tabla de reporte ---
+    st.divider()
+    st.subheader("Reporte de Compras Registradas")
+    df_compras, total_calc, total_costo = cargar_compras_registradas(cierre_id)
+    
+    if df_compras.empty:
+        st.info("Aún no se han registrado compras en este cierre.")
+    else:
+        df_compras["Eliminar"] = False 
+        
+        column_config_compra = {
+            "ID": None, 
+            "Calculado": st.column_config.NumberColumn("Valor Calculado", format="$ %.2f", disabled=True),
+            "Costo Real": st.column_config.NumberColumn("Costo Real", format="$ %.2f", disabled=True),
+            "Ahorro/Ganancia": st.column_config.NumberColumn("Ahorro (Ganancia)", format="$ %.2f", disabled=True),
+            "Notas": st.column_config.TextColumn("Notas", disabled=True),
+            "Eliminar": st.column_config.CheckboxColumn("Eliminar", default=False)
+        }
+
+        edited_df_compra = st.data_editor(
+            df_compras, column_config=column_config_compra,
+            width='stretch', hide_index=True, key="editor_compras"
+        )
+
+        # Lógica de eliminación (con el botón principal que aprobaste)
+        if st.button("Eliminar Compras Seleccionadas", type="primary", key="btn_eliminar_compras"):
+            filas_para_eliminar = edited_df_compra[edited_df_compra["Eliminar"] == True]
+            
+            if filas_para_eliminar.empty:
+                st.info("No se seleccionó ningún registro para eliminar.")
+            else:
+                total_a_eliminar = len(filas_para_eliminar)
+                errores = []
+                with st.spinner(f"Eliminando {total_a_eliminar} registros..."):
+                    for index, fila in filas_para_eliminar.iterrows():
+                        compra_id = fila["ID"]
+                        _, err_del = database.eliminar_compra_registro(compra_id) # Usamos el delete simple
+                        if err_del:
+                            errores.append(f"Fila ID {compra_id}: {err_del}")
+                
+                if errores:
+                    st.error("Ocurrieron errores durante la eliminación:")
+                    st.json(errores)
+                else:
+                    st.success(f"¡{total_a_eliminar} registros eliminados con éxito!")
+                    cargar_compras_registradas.clear()
+                    st.rerun()
+
+    # --- Resumen de Ganancia (Reporte) ---
+    st.metric("Total Calculado (Estimado)", f"${total_calc:,.2f}")
+    st.metric("Total Costo Real", f"${total_costo:,.2f}")
+    ahorro_neto = total_calc - total_costo
+    st.metric(
+        "AHORRO NETO EN COMPRAS (GANANCIA)", 
+        f"${ahorro_neto:,.2f}",
+        delta=f"{ahorro_neto:,.2f}",
+        delta_color="normal" if ahorro_neto >= 0 else "inverse"
+    )
+# --- FIN BLOQUE COMPRAS ---
+
 
 # --- Módulo: tab_resumen ---
 def _ejecutar_calculo_resumen(cierre_id, cierre_actual_obj):
@@ -633,12 +763,16 @@ def _ejecutar_calculo_resumen(cierre_id, cierre_actual_obj):
                     total_ingresos_adicionales_efectivo += monto
                     ingresos_adic_efectivo_lista.append(ingreso)
 
+        # LOS GASTOS AHORA INCLUYEN AUTOMÁTICAMENTE LOS COSTOS DE DELIVERY (PLAN SIMPLIFICADO)
         gastos, err_g = database.obtener_gastos_del_cierre(cierre_id)
         total_gastos = Decimal('0.00')
         if not err_g and gastos:
             for gasto in gastos:
                 total_gastos += Decimal(str(gasto.get('monto') or 0.0))
+
+        # El cálculo vuelve a ser simple:
         total_calculado_efectivo = (saldo_inicial + total_pagos_venta_efectivo + total_ingresos_adicionales_efectivo) - total_gastos
+        
         st.session_state.cierre_actual_objeto['total_calculado_teorico'] = float(total_calculado_efectivo)
         st.session_state.resumen_calculado = {
             "saldo_inicial": saldo_inicial, "total_pagos_venta_efectivo": total_pagos_venta_efectivo,
@@ -655,7 +789,7 @@ def render_tab_resumen():
         st.stop()
     cierre_id = cierre_actual['id']
     st.subheader("Cálculo del Saldo Teórico de Efectivo")
-    st.info("Este es el resumen de todo el efectivo. Presiona 'Recalcular' si has añadido nuevos gastos o ingresos en las otras pestañas.")
+    st.info("Este es el resumen de todo el efectivo. Presiona 'Recalcular' si has añadido nuevos gastos, ingresos o deliveries en las otras pestañas.")
     if st.button("Recalcular Resumen (Refrescar Manual)", type="primary"):
         _ejecutar_calculo_resumen(cierre_id, cierre_actual)
         st.success("Resumen refrescado.")
@@ -674,11 +808,14 @@ def render_tab_resumen():
         val_total_gastos = resumen_guardado.get('total_gastos') or 0.0
         st.header(f"Total Teórico en Caja: ${val_total_teorico:,.2f}")
         st.caption("Esta es la cantidad de efectivo que debería haber físicamente en caja antes del conteo final.")
+        
+        # Volvemos al cálculo simple de 4 columnas (Gastos ahora incluye Delivery)
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("1. Saldo Inicial (Efectivo)", f"${val_saldo_ini:,.2f}")
         col2.metric("2. Ventas (Efectivo)", f"${val_ventas_efec:,.2f}")
         col3.metric("3. Ingresos Adic. (Efectivo)", f"${val_ing_adic_efec:,.2f}")
-        col4.metric("4. Gastos (Efectivo)", f"$-{val_total_gastos:,.2f}", delta_color="inverse")
+        col4.metric("4. Gastos (Incl. Delivery)", f"$-{val_total_gastos:,.2f}", delta_color="inverse")
+        
         st.divider()
         st.subheader("Detalles del Cálculo")
         lista_pagos = resumen_guardado.get('pagos_lista', [])
@@ -693,7 +830,7 @@ def render_tab_resumen():
                 for ing in lista_ingresos:
                     socio_nombre = ing.get('socios', {}).get('nombre', 'N/A')
                     st.write(f"- Socio: {socio_nombre} | Monto: ${Decimal(str(ing.get('monto') or 0)):,.2f}")
-        with st.expander("Ver detalle de Gastos"):
+        with st.expander("Ver detalle de Gastos (Generales y Delivery)"):
             if not lista_gastos: st.write("Sin gastos registrados.")
             else:
                 for gasto in lista_gastos:
@@ -745,7 +882,7 @@ def render_tab_caja_final():
         st.stop()
     cierre_id = cierre_actual['id']
     saldo_teorico = Decimal(str(cierre_actual.get('total_calculado_teorico', 0.0)))
-    st.info(f"Total Teórico (calculado en Paso 4): ${saldo_teorico:,.2f}")
+    st.info(f"Total Teórico (calculado en Paso 5): ${saldo_teorico:,.2f}")
     st.markdown("Ingrese el conteo físico de todo el efectivo en caja para calcular la diferencia.")
     datos_saldo_final_guardado = cierre_actual.get('saldo_final_detalle') or {}
     detalle_guardado = datos_saldo_final_guardado.get('detalle', {})
@@ -899,7 +1036,6 @@ def render_tab_verificacion():
     saved_verification_lookup = {}
     if datos_guardados:
         for item in datos_guardados.get('verificacion_con_match', []):
-            # Usamos la lookup_key (si existe) o el método (si es de ventas)
             lookup_key = item.get('lookup_key') or f"{item.get('metodo', '').lower()}_ventas"
             saved_verification_lookup[lookup_key] = item
     
@@ -928,12 +1064,10 @@ def render_tab_verificacion():
         if not datos_verif['metodos_maestros']:
              st.warning("No hay métodos de pago (reglas) cargados en la base de datos.")
         
-        # 1. Iteramos sobre las REGLAS (métodos maestros), excluyendo efectivo
         for nombre_lower in datos_verif['set_maestros_verificables']:
             regla_metodo = datos_verif['metodos_maestros'][nombre_lower]
             nombre_display = regla_metodo['nombre']
 
-            # --- A. VENTAS (PAGOS) ---
             total_ventas = datos_verif['totales_ventas'].get(nombre_lower, Decimal('0.00'))
             lookup_key_ventas = f"{nombre_lower}_ventas"
             
@@ -943,15 +1077,15 @@ def render_tab_verificacion():
             
             st.markdown(f"**Verificando: {nombre_display} (VENTAS/POS)**")
             cols_v, cols_v2, cols_v3 = st.columns(3)
-            cols_v.metric("Total Sistema (Ventas)", f"${total_ventas:,.2f}") # FIXED
-            valor_reportado_ventas = cols_v2.number_input( # FIXED
+            cols_v.metric("Total Sistema (Ventas)", f"${total_ventas:,.2f}")
+            valor_reportado_ventas = cols_v2.number_input(
                 "Total Reportado (Voucher Ventas)", min_value=0.0, step=0.01, format="%.2f",
                 value=valor_reportado_guardado_ventas, key=f"verif_num_{lookup_key_ventas}"
             )
             diff_v = Decimal(str(valor_reportado_ventas)) - total_ventas
             voucher_v_ok = abs(diff_v) < Decimal('0.01')
             if not voucher_v_ok: vouchers_match_ok = False
-            cols_v3.metric("Diferencia", f"${diff_v:,.2f}", # FIXED
+            cols_v3.metric("Diferencia", f"${diff_v:,.2f}", 
                            delta=f"{'OK' if voucher_v_ok else 'FALLO'}", 
                            delta_color="normal" if voucher_v_ok else "inverse")
             
@@ -970,7 +1104,6 @@ def render_tab_verificacion():
                 "match_ok": voucher_v_ok, "url_foto": None, "lookup_key": lookup_key_ventas
             })
 
-        # 2. Iteramos sobre los INGRESOS ADICIONALES y verificamos si alguno necesita match
         st.markdown("---")
         st.markdown("**Verificando: Ingresos Adicionales (Socios)**")
         
@@ -1001,7 +1134,7 @@ def render_tab_verificacion():
             socio_nombre = ing.get('socios', {}).get('nombre', 'N/A')
             regla_metodo = datos_verif['metodos_maestros'][nombre_lower]
             total_sistema_ing = Decimal(str(ing.get('monto', 0)))
-            lookup_key = f"ing_{ing['id']}" # Key única basada en el ID del ingreso
+            lookup_key = f"ing_{ing['id']}" 
 
             data_guardada_ing = saved_verification_lookup.get(lookup_key, {})
             valor_reportado_guardado_ing = float(data_guardada_ing.get('total_reportado', 0.0))
@@ -1009,15 +1142,15 @@ def render_tab_verificacion():
 
             st.markdown(f"**Socio {socio_nombre} / M&eacute;todo: {nombre_metodo}**")
             cols_i, cols_i2, cols_i3 = st.columns(3)
-            cols_i.metric("Total Sistema (Ingreso)", f"${total_sistema_ing:,.2f}") # FIXED
-            valor_reportado_ing = cols_i2.number_input( # FIXED
+            cols_i.metric("Total Sistema (Ingreso)", f"${total_sistema_ing:,.2f}")
+            valor_reportado_ing = cols_i2.number_input(
                 "Monto Reportado (Voucher Socio)", min_value=0.0, step=0.01, format="%.2f",
                 value=valor_reportado_guardado_ing, key=f"verif_num_{lookup_key}"
             )
             diff_i = Decimal(str(valor_reportado_ing)) - total_sistema_ing
             voucher_i_ok = abs(diff_i) < Decimal('0.01')
             if not voucher_i_ok: vouchers_match_ok = False
-            cols_i3.metric("Diferencia", f"${diff_i:,.2f}", # FIXED
+            cols_i3.metric("Diferencia", f"${diff_i:,.2f}", 
                            delta=f"{'OK' if voucher_i_ok else 'FALLO'}", 
                            delta_color="normal" if voucher_i_ok else "inverse")
             
@@ -1092,7 +1225,7 @@ def render_tab_verificacion():
             for item in json_verificacion_con_match:
                 if item['url_foto'] is None: 
                     lookup_key = item.get('lookup_key') or f"{item['metodo'].lower()}_ventas"
-                    if widget_data.get(lookup_key): # Asegurarnos que la key existe
+                    if widget_data.get(lookup_key): 
                         url_guardada_previa = widget_data[lookup_key].get('url_guardada')
                         if url_guardada_previa: item['url_foto'] = url_guardada_previa 
 
@@ -1123,9 +1256,9 @@ def render_tab_verificacion():
     else:
         boton_finalizar_habilitado = False
         if not cash_match_ok:
-            razon_deshabilitado = "Finalización bloqueada: El EFECTIVO (Paso 5) no cuadra con el RESUMEN (Paso 4)."
+            razon_deshabilitado = "Finalización bloqueada: El EFECTIVO (Paso 6) no cuadra con el RESUMEN (Paso 5)."
         elif not vouchers_match_ok:
-            razon_deshabilitado = "Finalización bloqueada: Los VOUCHERS (Paso 6) no cuadran con el Sistema."
+            razon_deshabilitado = "Finalización bloqueada: Los VOUCHERS (Paso 7) no cuadran con el Sistema."
         st.error(razon_deshabilitado)
 
     if st.button("FINALIZAR CIERRE DEL DÍA", type="primary", disabled=not boton_finalizar_habilitado):
@@ -1143,6 +1276,8 @@ def render_tab_verificacion():
                 try:
                     cargar_gastos_registrados.clear()
                     cargar_ingresos_existentes.clear()
+                    cargar_deliveries_registrados.clear() # Limpiar caché nuevo
+                    cargar_compras_registradas.clear() # Limpiar caché nuevo
                 except NameError: pass 
                 st.rerun()
 
@@ -1240,20 +1375,23 @@ if st.session_state.get('cierre_actual_objeto'):
     st.markdown("---")
     st.header(f"Estás trabajando en: {sucursal_seleccionada_nombre}")
     
-    tab1, tab2, tab3, tab_del, tab4, tab5, tab6 = st.tabs([
+    # --- DEFINICIÓN FINAL DE TABS ---
+    tab1, tab2, tab3, tab_del, tab_compra, tab4, tab5, tab6 = st.tabs([
         "PASO 1: Caja Inicial", 
         "PASO 2: Gastos", 
         "PASO 3: Ingresos Adic.",
-        "PASO 4: Delivery",  # <-- NUEVO TAB
-        "PASO 5: Resumen",          # <-- Renumerado
-        "PASO 6: Caja Final",       # <-- Renumerado
-        "PASO 7: Verificación y Finalizar" # <-- Renumerado
+        "PASO 4: Delivery",
+        "PASO 5: Compras (Info)",
+        "PASO 6: Resumen",
+        "PASO 7: Caja Final",
+        "PASO 8: Verificación y Finalizar"
     ])
-    
+
     with tab1: render_tab_inicial()
     with tab2: render_tab_gastos()
     with tab3: render_tab_ingresos_adic()
     with tab_del: render_tab_delivery()
+    with tab_compra: render_tab_compras()
     with tab4: render_tab_resumen()
     with tab5: render_tab_caja_final()
     with tab6: render_tab_verificacion()
