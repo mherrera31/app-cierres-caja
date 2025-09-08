@@ -1,5 +1,5 @@
 # pages/3_Cierre_de_Caja.py
-# VERSIÓN CONSOLIDADA (CON LÓGICA DE ELIMINAR GASTOS AÑADIDA)
+# VERSIÓN CON CORRECCIÓN DEL KEYERROR EN TAB_GASTOS
 
 import streamlit as st
 import database
@@ -192,7 +192,7 @@ def render_tab_inicial():
             st.success("¡Saldo inicial actualizado con éxito!")
             st.rerun()
 
-# --- Módulo: tab_gastos (REESCRITO CON LÓGICA DE ELIMINAR) ---
+# --- Módulo: tab_gastos (CORREGIDO) ---
 @st.cache_data(ttl=600)
 def cargar_categorias_gastos_activas():
     categorias_data, err = database.obtener_categorias_gastos()
@@ -222,7 +222,7 @@ def cargar_gastos_registrados(cierre_id):
             "Categoría": nombre_cat,
             "Monto": monto,
             "Notas": gasto.get('notas', ''),
-            "ID": gasto['id'] # <-- IMPORTANTE: Traemos el ID
+            "ID": gasto['id'] 
         })
     
     df = pd.DataFrame(df_data)
@@ -271,7 +271,7 @@ def render_tab_gastos():
             st.session_state.pop('resumen_calculado', None) 
             st.rerun()
 
-    # --- 2. Lista de Gastos Registrados (AHORA CON data_editor) ---
+    # --- 2. Lista de Gastos Registrados (CON data_editor) ---
     st.divider()
     st.subheader("Gastos Registrados en este Cierre")
     
@@ -280,14 +280,15 @@ def render_tab_gastos():
     if df_gastos.empty:
         st.info("Aún no se han registrado gastos en este cierre.")
     else:
-        # Copia del dataframe original para comparar cambios
+        # --- CORRECCIÓN DE BUG (KeyError: 'Eliminar') ---
+        # 1. Añadimos la columna virtual ANTES de hacer la copia.
+        df_gastos["Eliminar"] = False 
+        # 2. HACEMOS LA COPIA DESPUÉS.
         df_original = df_gastos.copy()
-        
-        # Añadimos la columna virtual "Eliminar"
-        df_gastos["Eliminar"] = False
+        # --- FIN DE CORRECCIÓN ---
         
         column_config_gastos = {
-            "ID": None, # Ocultamos ID
+            "ID": None, 
             "Categoría": st.column_config.TextColumn("Categoría", disabled=True),
             "Monto": st.column_config.NumberColumn("Monto", format="$ %.2f", disabled=True),
             "Notas": st.column_config.TextColumn("Notas", disabled=True),
@@ -298,18 +299,17 @@ def render_tab_gastos():
             )
         }
 
-        # Renderizar el editor de datos
         edited_df_gastos = st.data_editor(
             df_gastos,
             column_config=column_config_gastos,
-            width='stretch', # <-- CORRECCIÓN DE ADVERTENCIA
+            width='stretch', # Corrección de advertencia
             hide_index=True,
             key="editor_gastos"
         )
 
         # --- Lógica de Detección de Eliminación ---
         try:
-            # Encontrar filas donde "Eliminar" cambió de False a True
+            # Esta lógica ahora funciona porque df_original TAMBIÉN tiene la columna "Eliminar"
             fila_eliminada = (edited_df_gastos["Eliminar"] == True) & (df_original["Eliminar"] == False)
             
             if fila_eliminada.any():
@@ -317,6 +317,7 @@ def render_tab_gastos():
                 gasto_nombre = edited_df_gastos.loc[fila_eliminada, "Categoría"].iloc[0]
                 gasto_monto = edited_df_gastos.loc[fila_eliminada, "Monto"].iloc[0]
 
+                # ESTA ES LA CONFIRMACIÓN QUE PEDISTE:
                 st.warning(f"¿Seguro que deseas eliminar el gasto de {gasto_nombre} por ${gasto_monto:,.2f}?")
                 
                 if st.button("Confirmar Eliminación"):
@@ -428,7 +429,6 @@ def render_tab_ingresos_adic():
 def _ejecutar_calculo_resumen(cierre_id, cierre_actual_obj):
     with st.spinner("Calculando resumen con datos actualizados..."):
         saldo_inicial = Decimal(str(cierre_actual_obj.get('saldo_inicial_efectivo') or 0.0))
-
         pagos_venta, err_p = database.obtener_pagos_del_cierre(cierre_id)
         total_pagos_venta_efectivo = Decimal('0.00')
         pagos_venta_efectivo_lista = []
@@ -439,7 +439,6 @@ def _ejecutar_calculo_resumen(cierre_id, cierre_actual_obj):
                     monto = Decimal(str(pago.get('monto') or 0.0))
                     total_pagos_venta_efectivo += monto
                     pagos_venta_efectivo_lista.append(pago) 
-
         ingresos_adicionales, err_i = database.obtener_ingresos_adicionales_del_cierre(cierre_id)
         total_ingresos_adicionales_efectivo = Decimal('0.00')
         ingresos_adic_efectivo_lista = []
@@ -450,13 +449,11 @@ def _ejecutar_calculo_resumen(cierre_id, cierre_actual_obj):
                     monto = Decimal(str(ingreso.get('monto') or 0.0))
                     total_ingresos_adicionales_efectivo += monto
                     ingresos_adic_efectivo_lista.append(ingreso)
-
         gastos, err_g = database.obtener_gastos_del_cierre(cierre_id)
         total_gastos = Decimal('0.00')
         if not err_g and gastos:
             for gasto in gastos:
                 total_gastos += Decimal(str(gasto.get('monto') or 0.0))
-
         total_calculado_efectivo = (saldo_inicial + total_pagos_venta_efectivo + total_ingresos_adicionales_efectivo) - total_gastos
         st.session_state.cierre_actual_objeto['total_calculado_teorico'] = float(total_calculado_efectivo)
         st.session_state.resumen_calculado = {
@@ -473,21 +470,16 @@ def render_tab_resumen():
         st.error("Error: No hay ningún cierre cargado en la sesión.")
         st.stop()
     cierre_id = cierre_actual['id']
-
     st.subheader("Cálculo del Saldo Teórico de Efectivo")
     st.info("Este es el resumen de todo el efectivo. Presiona 'Recalcular' si has añadido nuevos gastos o ingresos en las otras pestañas.")
-
     if st.button("Recalcular Resumen (Refrescar Manual)", type="primary"):
         _ejecutar_calculo_resumen(cierre_id, cierre_actual)
         st.success("Resumen refrescado.")
-
     resumen_cache = st.session_state.get('resumen_calculado')
     if not resumen_cache or resumen_cache.get('cache_id') != cierre_id:
         _ejecutar_calculo_resumen(cierre_id, cierre_actual)
-
     st.divider()
     resumen_guardado = st.session_state.get('resumen_calculado')
-
     if not resumen_guardado:
         st.warning("Calculando datos del resumen... (Presiona el botón de Recalcular si esto no desaparece).")
     else:
@@ -496,22 +488,18 @@ def render_tab_resumen():
         val_ventas_efec = resumen_guardado.get('total_pagos_venta_efectivo') or 0.0
         val_ing_adic_efec = resumen_guardado.get('total_ingresos_adicionales_efectivo') or 0.0
         val_total_gastos = resumen_guardado.get('total_gastos') or 0.0
-        
         st.header(f"Total Teórico en Caja: ${val_total_teorico:,.2f}")
         st.caption("Esta es la cantidad de efectivo que debería haber físicamente en caja antes del conteo final.")
-        
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("1. Saldo Inicial (Efectivo)", f"${val_saldo_ini:,.2f}")
         col2.metric("2. Ventas (Efectivo)", f"${val_ventas_efec:,.2f}")
         col3.metric("3. Ingresos Adic. (Efectivo)", f"${val_ing_adic_efec:,.2f}")
         col4.metric("4. Gastos (Efectivo)", f"$-{val_total_gastos:,.2f}", delta_color="inverse")
-
         st.divider()
         st.subheader("Detalles del Cálculo")
         lista_pagos = resumen_guardado.get('pagos_lista', [])
         lista_ingresos = resumen_guardado.get('ingresos_lista', [])
         lista_gastos = resumen_guardado.get('gastos_lista', [])
-
         with st.expander("Ver detalle de Ventas en Efectivo"):
             if not lista_pagos: st.write("Sin ventas en efectivo.")
             else: st.write(f"Total de {len(lista_pagos)} pagos en efectivo sumando: ${val_ventas_efec:,.2f}")
@@ -874,9 +862,11 @@ def render_tab_verificacion():
                 st.session_state.pop('resumen_calculado', None) 
                 cargar_datos_verificacion.clear()
                 try:
+                    # Intentamos limpiar todos los caches de los otros módulos
                     cargar_gastos_registrados.clear()
                     cargar_ingresos_existentes.clear()
-                except NameError: pass 
+                except NameError: 
+                    pass 
                 st.rerun()
 
 # =============================================================================
