@@ -746,15 +746,15 @@ def render_tab_verificacion():
             
             st.markdown(f"**Verificando: {nombre_display} (VENTAS/POS)**")
             cols_v, cols_v2, cols_v3 = st.columns(3)
-            cols_v[0].metric("Total Sistema (Ventas)", f"${total_ventas:,.2f}")
-            valor_reportado_ventas = cols_v[1].number_input(
+            cols_v.metric("Total Sistema (Ventas)", f"${total_ventas:,.2f}") # FIXED
+            valor_reportado_ventas = cols_v2.number_input( # FIXED
                 "Total Reportado (Voucher Ventas)", min_value=0.0, step=0.01, format="%.2f",
                 value=valor_reportado_guardado_ventas, key=f"verif_num_{lookup_key_ventas}"
             )
             diff_v = Decimal(str(valor_reportado_ventas)) - total_ventas
             voucher_v_ok = abs(diff_v) < Decimal('0.01')
             if not voucher_v_ok: vouchers_match_ok = False
-            cols_v[2].metric("Diferencia", f"${diff_v:,.2f}", 
+            cols_v3.metric("Diferencia", f"${diff_v:,.2f}", # FIXED
                            delta=f"{'OK' if voucher_v_ok else 'FALLO'}", 
                            delta_color="normal" if voucher_v_ok else "inverse")
             
@@ -812,15 +812,15 @@ def render_tab_verificacion():
 
             st.markdown(f"**Socio {socio_nombre} / M&eacute;todo: {nombre_metodo}**")
             cols_i, cols_i2, cols_i3 = st.columns(3)
-            cols_i[0].metric("Total Sistema (Ingreso)", f"${total_sistema_ing:,.2f}")
-            valor_reportado_ing = cols_i[1].number_input(
+            cols_i.metric("Total Sistema (Ingreso)", f"${total_sistema_ing:,.2f}") # FIXED
+            valor_reportado_ing = cols_i2.number_input( # FIXED
                 "Monto Reportado (Voucher Socio)", min_value=0.0, step=0.01, format="%.2f",
                 value=valor_reportado_guardado_ing, key=f"verif_num_{lookup_key}"
             )
             diff_i = Decimal(str(valor_reportado_ing)) - total_sistema_ing
             voucher_i_ok = abs(diff_i) < Decimal('0.01')
             if not voucher_i_ok: vouchers_match_ok = False
-            cols_i[2].metric("Diferencia", f"${diff_i:,.2f}", 
+            cols_i3.metric("Diferencia", f"${diff_i:,.2f}", # FIXED
                            delta=f"{'OK' if voucher_i_ok else 'FALLO'}", 
                            delta_color="normal" if voucher_i_ok else "inverse")
             
