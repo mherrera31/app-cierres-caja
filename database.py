@@ -657,3 +657,22 @@ def upsert_registro_carga(fecha_operacion, sucursal_id, usuario_id, datos_carga)
         return response.data, None
     except Exception as e:
         return None, f"Error al guardar (upsert) el registro de carga: {e}"
+
+def get_registros_carga_rango(sucursal_id, fecha_inicio, fecha_fin):
+    """
+    Obtiene todos los registros de carga para una sucursal específica
+    DENTRO de un rango de fechas.
+    """
+    try:
+        query = supabase.table('cierre_registros_carga') \
+            .select('*, sucursales(sucursal), perfiles(nombre)') \
+            .eq('sucursal_id', sucursal_id) \
+            .gte('fecha_operacion', fecha_inicio) \
+            .lte('fecha_operacion', fecha_fin) \
+            .order('fecha_operacion', desc=True)
+        
+        response = query.execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al buscar registros por rango: {e}"
+
