@@ -146,3 +146,79 @@ col_r2.metric(
     value=f"${ganancia_actual:,.2f}",
     delta_color="normal" if ganancia_actual >= 0 else "inverse"
 )
+
+# --- INICIO: NUEVO BLOQUE DE REPORTE HISTÓRICO ---
+
+st.divider()
+st.header("Reporte Histórico (Solo consulta)")
+st.info(f"Mostrando historial para la sucursal seleccionada: **{sucursal_nombre_sel}**")
+
+# Importar Pandas (asegúrate de tener 'import pandas as pd' al inicio del archivo)
+import pandas as pd
+from datetime import timedelta
+
+col_f1, col_f2 = st.columns(2)
+# Fecha por defecto para los filtros: los últimos 30 días
+fecha_hasta_def = datetime.now(tz_panama).date()
+fecha_desde_def = fecha_hasta_def - timedelta(days=30)
+
+filtro_fecha_desde = col_f1.date_input("Reporte Desde:", value=fecha_desde_def)
+filtro_fecha_hasta = col_f2.date_input("Reporte Hasta:", value=fecha_hasta_def)
+
+if st.button("Buscar Historial"):
+    if filtro_fecha_desde > filtro_fecha_hasta:
+        st.error("Error: La fecha 'Desde' no puede ser posterior a la fecha 'Hasta'.")
+    else:
+        with st.spinner("Buscando historial..."):
+            historial_data, err_hist = database.get_registros_carga_rango(
+                sucursal_id_sel, 
+                filtro_fecha_desde.strftime('%Y-%m-%d'), 
+                filtro_fecha_hasta.strftime('%Y-%m-%d')
+            )
+        
+        if err_hist:
+            st.error(f"Error cargando historial: {err_hist}")
+        elif not historial_data:
+            st.warning("No se encontraron registros en ese rango de fechas para esta sucursal.")
+        else:
+            st.info(f"Se encontraron {len(historial_data)} registros.")
+            
+            # Procesar datos para la tabla
+            df_data = []
+            total_facturado_rango = 0.0
+            total_retirado_rango = 0.0
+            total_sin_retirar_rango = 0.0
+
+            for fila in historial_data:
+                facturado = float(fila.get('carga_facturada', 0))
+                retirado = float(fila.get('carga_retirada', 0))
+                sin_retirar = float(fila.get('carga_sin_retirar', 0))
+                
+                ganancia = facturado - retirado
+                ganancia_actual = ganancia - sin_retirar
+                
+                total_facturado_rango += facturado
+                total_retirado_rango += retirado
+                total_sin_retirar_rango += sin_retirar
+
+                df_data.append({
+                    "Fecha": fila['fecha_operacion'],
+                    "Facturado": facturado,
+                    "Retirado": retirado,
+                    "Sin Retirar": sin_retirar,
+                    "Ganancia": ganancia,
+                    "Ganancia Actual": ganancia_actual,
+                    "Usuario": fila.get('perfiles', {}).get('nombre', 'N/A') if fila.get('perfiles') else 'N/A'
+                })
+            
+            df_reporte = pd.DataFrame(df_data)
+            st.dataframe(df_reporte, use_container_width=True)
+            
+            # Calcular totales del rango
+            total_ganancia_rango = total_facturado_rango - total_retirado_rango
+            total_ganancia_actual_rango = total_ganancia_rango - total_sin_retirar
+
+            st.subheader("Totales del Rango Seleccionado")
+            col_t1, col_t2 = st.columns(2)
+            col_t1.metric("Ganancia Total (Facturado - Retirado)", f"${total_ganancia_rango:,.2f}")
+            col_t2.metric("Ganancia Actual Total (Ganancia - Sin Retirar)", f"${total_ganancia_actual_rango:,.2f}")
