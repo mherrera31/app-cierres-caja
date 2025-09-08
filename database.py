@@ -249,7 +249,8 @@ def actualizar_ingreso_adicional(cierre_id, socio_id, monto, metodo_pago):
 
 def obtener_ingresos_adicionales_del_cierre(cierre_id):
     try:
-        response = supabase.table('ingresos_adicionales').select('*, socios(nombre)').eq('cierre_id', cierre_id).order('created_at').execute()
+        # Ahora hacemos un JOIN a socios para traernos sus reglas
+        response = supabase.table('ingresos_adicionales').select('*, socios(nombre, afecta_conteo_efectivo, requiere_verificacion_voucher)').eq('cierre_id', cierre_id).order('created_at').execute()
         return response.data, None
     except Exception as e:
         return [], f"Error al obtener los ingresos adicionales: {e}"
