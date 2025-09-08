@@ -636,11 +636,14 @@ def upsert_registro_carga(fecha_operacion, sucursal_id, usuario_id, datos_carga)
             "carga_sin_retirar": datos_carga['carga_sin_retirar']
         }
         
+        # --- ESTA ES LA LÍNEA CORREGIDA ---
+        # En lugar de usar el NOMBRE del constraint ("unique_fecha_sucursal"),
+        # usamos los NOMBRES DE LAS COLUMNAS que tienen el constraint.
         response = supabase.table('cierre_registros_carga') \
-            .upsert(registro, on_conflict="unique_fecha_sucursal") \
+            .upsert(registro, on_conflict="fecha_operacion, sucursal_id") \
             .execute()
+        # --- FIN DE LA CORRECCIÓN ---
         
-        # --- ¡NUEVA LÍNEA DE PROTECCIÓN! ---
         if response is None:
              return None, "Error de API al guardar: La respuesta de la base de datos fue Nula (None)."
 
