@@ -138,7 +138,8 @@ def registrar_gasto(cierre_id, categoria_id, monto, notas, usuario_id, sucursal_
             "cierre_id": cierre_id, "categoria_id": categoria_id, "monto": monto,
             "notas": notas, "usuario_id": usuario_id, "sucursal_id": sucursal_id, "sucursal": sucursal_nombre
         }
-        response = supabase.table('gastos_caja').insert(datos).select('*').execute() # Añadido select('*') para devolver el objeto
+        # ESTA ES LA SINTAXIS CORRECTA (SIN .select())
+        response = supabase.table('gastos_caja').insert(datos).execute()
         return response.data, None
     except Exception as e:
         return None, f"Error al registrar el gasto: {e}"
