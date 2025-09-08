@@ -407,3 +407,13 @@ def admin_buscar_cierres_filtrados(fecha_inicio, fecha_fin, sucursal_id=None, us
 
     except Exception as e:
         return [], f"Error al buscar cierres filtrados: {e}"
+
+def eliminar_gasto_caja(gasto_id):
+    """
+    Elimina permanentemente un registro de gasto usando su ID.
+    """
+    try:
+        response = supabase.table('gastos_caja').delete().eq('id', gasto_id).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al eliminar el gasto: {e}"
