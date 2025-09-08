@@ -560,36 +560,36 @@ def render_tab_delivery():
         )
 
          # Botón principal para procesar eliminaciones (acepta los "ganchitos")
-        if st.button("Eliminar Registros Seleccionados", type="primary"):
+    if st.button("Eliminar Registros Seleccionados", type="primary"):
             
-            filas_para_eliminar = edited_df_del[edited_df_del["Eliminar"] == True]
+        filas_para_eliminar = edited_df_del[edited_df_del["Eliminar"] == True]
             
-            if filas_para_eliminar.empty:
-                st.info("No se seleccionó ningún registro para eliminar (marca el ganchito 'Eliminar' en la fila).")
-            else:
-                total_a_eliminar = len(filas_para_eliminar)
-                st.warning(f"Se eliminarán {total_a_eliminar} registros (y sus gastos asociados). Esta acción es irreversible.")
+        if filas_para_eliminar.empty:
+            st.info("No se seleccionó ningún registro para eliminar (marca el ganchito 'Eliminar' en la fila).")
+        else:
+            total_a_eliminar = len(filas_para_eliminar)
+            st.warning(f"Se eliminarán {total_a_eliminar} registros (y sus gastos asociados). Esta acción es irreversible.")
                 
-                errores = []
-                with st.spinner(f"Eliminando {total_a_eliminar} registros..."):
-                    for index, fila in filas_para_eliminar.iterrows():
-                        del_id = fila["ID"]
-                        gasto_id = fila["Gasto_ID"]
+            errores = []
+            with st.spinner(f"Eliminando {total_a_eliminar} registros..."):
+                for index, fila in filas_para_eliminar.iterrows():
+                    del_id = fila["ID"]
+                    gasto_id = fila["Gasto_ID"]
                         
-                        _, err_del = database.eliminar_delivery_completo(del_id, gasto_id)
-                        if err_del:
-                            errores.append(f"Fila ID {del_id}: {err_del}")
+                    _, err_del = database.eliminar_delivery_completo(del_id, gasto_id)
+                    if err_del:
+                        errores.append(f"Fila ID {del_id}: {err_del}")
                 
-                if errores:
-                    st.error("Ocurrieron errores durante la eliminación:")
-                    st.json(errores)
-                else:
-                    st.success(f"¡{total_a_eliminar} registros eliminados con éxito!")
+            if errores:
+                st.error("Ocurrieron errores durante la eliminación:")
+                st.json(errores)
+            else:
+                st.success(f"¡{total_a_eliminar} registros eliminados con éxito!")
                     # Limpiar todos los cachés relevantes
-                    cargar_deliveries_registrados.clear()
-                    cargar_gastos_registrados.clear()
-                    st.session_state.pop('resumen_calculado', None) 
-                    st.rerun()
+                cargar_deliveries_registrados.clear()
+                cargar_gastos_registrados.clear()
+                st.session_state.pop('resumen_calculado', None) 
+                st.rerun()
         except Exception as e:
             st.error(f"Ocurrió un error procesando la eliminación: {e}")
 
