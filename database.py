@@ -676,145 +676,95 @@ def get_registros_carga_rango(sucursal_id, fecha_inicio, fecha_fin):
     except Exception as e:
         return None, f"Error al buscar registros por rango: {e}"
 
+def buscar_cierre_cde_existente_hoy(fecha_str, sucursal_id):
+    """
+    Esta función SÓLO BUSCA un cierre (abierto o cerrado). NUNCA CREA.
+    """
+    try:
+        # Busca CUALQUIER cierre (abierto o cerrado) para ese día/sucursal
+        response = supabase.table('cierres_cde') \
+            .select('*') \
+            .eq('fecha_operacion', fecha_str) \
+            .eq('sucursal_id', sucursal_id) \
+            .maybe_single() \
+            .execute()
+        
+        if response is None:
+            return None, "Error API: Respuesta Nula al buscar cierre existente CDE"
+        
+        # Devuelve los datos (que serán None si no hay nada) o un error.
+        return response.data, None
+
+    except Exception as e:
+        return None, f"Error al buscar cierre CDE existente: {e}"
+        
 # --- INICIO DE FUNCIONES DEL MÓDULO CIERRE CDE (CON PARCHES DE SEGURIDAD) ---
 
-def obtener_sucursales_cde():
+def crear_nuevo_cierre_cde(fecha_str, sucursal_id, usuario_id):
+    """
+    Esta función SÓLO CREA un nuevo cierre CDE.
+    Primero, calcula los totales del sistema en ese momento.
+    """
     try:
-        response = supabase.table('sucursales').select('id, sucursal').like('sucursal', '%CDE').execute()
-        if response is None:
-            return [], "Error API: Respuesta Nula al buscar sucursales CDE"
-        return response.data, None
-    except Exception as e:
-        return [], f"Error al obtener sucursales CDE: {e}"
-
-def obtener_metodos_pago_cde():
-    try:
-        response = supabase.table('metodos_pago') \
-            .select('id, nombre') \
-            .eq('is_cde', True) \
-            .neq('nombre', 'Efectivo') \
-            .order('nombre') \
-            .execute()
-        if response is None:
-            return [], "Error API: Respuesta Nula al buscar métodos CDE"
-        return response.data, None
-    except Exception as e:
-        return [], f"Error al obtener métodos de pago CDE: {e}"
-
-def calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre):
-    try:
-        tz_panama = pytz.timezone('America/Panama')
-        fecha_inicio_dia = tz_panama.localize(datetime.strptime(fecha_str, '%Y-%m-%d'))
-        fecha_fin_dia = fecha_inicio_dia + timedelta(days=1)
+        # (Necesitamos el nombre de la sucursal para la función de cálculo)
+        suc_data = supabase.table('sucursales').select('sucursal').eq('id', sucursal_id).single().execute()
+        if not suc_data.data:
+            return None, "No se encontró el nombre de la sucursal."
+            
+        sucursal_nombre = suc_data.data['sucursal']
         
-        response_pagos = supabase.table('pagos') \
-            .select('monto, metodo_pago') \
-            .eq('sucursal', sucursal_nombre) \
-            .gte('created_at', fecha_inicio_dia.isoformat()) \
-            .lt('created_at', fecha_fin_dia.isoformat()) \
-            .execute()
-        
-        if response_pagos is None:
-            return None, 0.0, "Error API: Respuesta Nula al calcular totales de pagos"
-            
-        pagos = response_pagos.data
-        if not pagos:
-            return {}, 0.0, None 
+        # 1. Calcular totales del sistema en el momento de la creación
+        totales_metodos_dict, total_efectivo, err_calc = calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre)
+        if err_calc:
+            return None, f"Error al calcular totales de pagos: {err_calc}"
 
-        totales_por_metodo = {}
-        total_efectivo = 0.0
-        
-        for pago in pagos:
-            metodo = pago['metodo_pago']
-            monto = Decimal(str(pago.get('monto', 0)))
-            
-            if metodo.lower() == 'efectivo':
-                total_efectivo += monto
-            else:
-                if metodo not in totales_por_metodo:
-                    totales_por_metodo[metodo] = Decimal('0.00')
-                totales_por_metodo[metodo] += monto
-
-        totales_por_metodo_float = {k: float(v) for k, v in totales_por_metodo.items()}
-        return totales_por_metodo_float, float(total_efectivo), None
-
-    except Exception as e:
-        return None, 0.0, f"Error al calcular totales de pagos: {e}"
-
-
-def buscar_o_crear_cierre_cde(fecha_str, sucursal_id, usuario_id, totales_sistema_efectivo):
-    try:
-        response_abierto = supabase.table('cierres_cde') \
-            .select('*') \
-            .eq('fecha_operacion', fecha_str) \
-            .eq('sucursal_id', sucursal_id) \
-            .eq('estado', 'ABIERTO') \
-            .maybe_single() \
-            .execute()
-            
-        if response_abierto is None:
-            return None, "Error API: Respuesta Nula buscando cierre abierto CDE"
-            
-        if response_abierto.data:
-            return response_abierto.data, None
-
-        response_cerrado = supabase.table('cierres_cde') \
-            .select('*') \
-            .eq('fecha_operacion', fecha_str) \
-            .eq('sucursal_id', sucursal_id) \
-            .eq('estado', 'CERRADO') \
-            .maybe_single() \
-            .execute()
-
-        if response_cerrado is None:
-            return None, "Error API: Respuesta Nula buscando cierre cerrado CDE"
-
-        if response_cerrado.data:
-            return response_cerrado.data, "EXISTE_CERRADO"
-
+        # 2. Crear el nuevo registro de cierre
         datos_nuevo = {
             "fecha_operacion": fecha_str,
             "sucursal_id": sucursal_id,
             "usuario_id": usuario_id,
             "estado": "ABIERTO",
-            "total_efectivo_sistema": totales_sistema_efectivo
+            "total_efectivo_sistema": total_efectivo
+            # El JSON de verificación de métodos se guardará vacío por ahora
         }
-        response_nuevo = supabase.table('cierres_cde').insert(datos_nuevo).execute()
+        response_nuevo = supabase.table('cierres_cde').insert(datos_nuevo).select('*').single().execute()
         
         if response_nuevo is None:
             return None, "Error API: Respuesta Nula al CREAR cierre CDE"
             
-        return response_nuevo.data[0], None
+        return response_nuevo.data, None
 
     except Exception as e:
-        return None, f"Error al buscar o crear cierre CDE: {e}"
+        return None, f"Error al crear nuevo cierre CDE: {e}"
 
-def guardar_conteo_cde(cierre_cde_id, total_contado, detalle_conteo, verificacion_metodos_json):
+def obtener_metodos_pago_NO_cde(totales_sistema_dict):
+    """
+    Obtiene los métodos de pago que NO son CDE pero SÍ recibieron pagos hoy.
+    (Para el reporte informativo que solicitaste).
+    """
     try:
-        datos = {
-            "total_efectivo_contado": total_contado,
-            "detalle_conteo_efectivo": detalle_conteo,
-            "verificacion_metodos": verificacion_metodos_json
-        }
-        response = supabase.table('cierres_cde').update(datos).eq('id', cierre_cde_id).execute()
-        if response is None:
-            return None, "Error API: Respuesta Nula al guardar conteo CDE"
-        return response.data, None
-    except Exception as e:
-        return None, f"Error al guardar conteo CDE: {e}"
+        response = supabase.table('metodos_pago') \
+            .select('nombre') \
+            .eq('is_cde', False) \
+            .eq('is_activo', True) \
+            .neq('nombre', 'Efectivo') \
+            .execute()
 
-def finalizar_cierre_cde(cierre_cde_id, con_discrepancia=False):
-    try:
-        datos = {
-            "estado": "CERRADO",
-            "discrepancia": con_discrepancia
-        }
-        response = supabase.table('cierres_cde').update(datos).eq('id', cierre_cde_id).execute()
         if response is None:
-            return None, "Error API: Respuesta Nula al finalizar cierre CDE"
-        return response.data, None
+            return [], "Error API: Respuesta Nula buscando métodos NO-CDE"
+
+        # Filtramos solo los que realmente recibieron pagos hoy
+        metodos_activos_no_cde = {m['nombre'] for m in response.data}
+        metodos_con_pagos = []
+        
+        for metodo_sistema, total in totales_sistema_dict.items():
+            if metodo_sistema in metodos_activos_no_cde:
+                metodos_con_pagos.append({"nombre": metodo_sistema, "total": total})
+                
+        return metodos_con_pagos, None
+        
     except Exception as e:
-        return None, f"Error al finalizar cierre CDE: {e}"
+        return [], f"Error al obtener métodos NO-CDE: {e}"
 
 # --- FIN DE FUNCIONES CIERRE CDE (CON PARCHES) ---
 
