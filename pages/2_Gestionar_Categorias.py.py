@@ -1,8 +1,17 @@
 # pages/2_Gestionar_Categorias.py
 
 import streamlit as st
+import sys
+import os
 import database
 import pandas as pd
+
+# --- BLOQUE DE CORRECCIÓN DE IMPORTPATH ---
+script_dir = os.path.dirname(__file__)
+project_root = os.path.abspath(os.path.join(script_dir, '..'))
+sys.path.append(project_root)
+# --- FIN DEL BLOQUE ---
+
 
 # --- GUARDIÁN DE SEGURIDAD ---
 if not st.session_state.get("autenticado"):
@@ -36,12 +45,11 @@ def cargar_data_categorias():
     for cat in categorias:
         df_data.append({
             "Nombre": cat['nombre'],
-            "is_activo": cat['is_activo'], # Traemos el estado booleano real
+            "is_activo": cat['is_activo'], 
             "ID": cat['id']
         })
     return pd.DataFrame(df_data)
 
-# --- UI: Añadir Nueva Categoría ---
 st.subheader("Añadir Nueva Categoría")
 with st.form(key="form_nueva_cat", clear_on_submit=True):
     nuevo_nombre = st.text_input("Nombre de la nueva categoría:")
@@ -58,7 +66,6 @@ if submit_nuevo:
             st.success(f"¡Categoría '{nuevo_nombre}' creada con éxito!")
             recargar_categorias()
 
-# --- UI: Lista de Categorías Existentes ---
 st.divider()
 st.subheader("Categorías Existentes")
 
@@ -79,7 +86,6 @@ else:
         )
     }
 
-    # Renderizar el editor de datos
     edited_df = st.data_editor(
         df_categorias,
         column_config=column_config,
@@ -89,7 +95,6 @@ else:
         key="editor_categorias"
     )
 
-    # --- Lógica de Detección de Cambios (Toggle) ---
     try:
         cambios = edited_df[df_original["is_activo"] != edited_df["is_activo"]]
 
