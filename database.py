@@ -222,11 +222,12 @@ def obtener_metodos_pago():
 
 def obtener_socios():
     try:
-        response = supabase.table('socios').select('id, nombre').order('nombre').execute()
+        # Seleccionamos las nuevas columnas de reglas
+        response = supabase.table('socios').select('id, nombre, afecta_conteo_efectivo, requiere_verificacion_voucher').order('nombre').execute()
         return response.data, None
     except Exception as e:
         return [], f"Error al obtener socios: {e}"
-
+        
 def registrar_ingreso_adicional(cierre_id, socio_id, monto, metodo_pago, notas):
     try:
         datos = {
