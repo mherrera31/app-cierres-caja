@@ -550,3 +550,49 @@ def eliminar_delivery_completo(delivery_id, gasto_asociado_id):
         return True, None
     except Exception as e:
         return None, f"Error al eliminar el registro completo de delivery: {e}"
+
+# --- FUNCIONES DE REGISTRO DE COMPRAS (INFORMATIVO) ---
+
+def registrar_compra(cierre_id, usuario_id, sucursal_id, valor_calculado, costo_real, notas):
+    """
+    Registra una entrada de compra puramente informativa. 
+    NO AFECTA A GASTOS_CAJA.
+    """
+    try:
+        datos = {
+            "cierre_id": cierre_id,
+            "usuario_id": usuario_id,
+            "sucursal_id": sucursal_id,
+            "valor_calculado": valor_calculado,
+            "costo_real": costo_real,
+            "notas": notas
+        }
+        response = supabase.table('cierre_compras').insert(datos).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al registrar la compra: {e}"
+
+def obtener_compras_del_cierre(cierre_id):
+    """
+    Obtiene todos los registros de 'cierre_compras' para un cierre_id.
+    """
+    try:
+        response = supabase.table('cierre_compras') \
+            .select('*') \
+            .eq('cierre_id', cierre_id) \
+            .order('created_at') \
+            .execute()
+        return response.data, None
+    except Exception as e:
+        return [], f"Error al obtener los registros de compras: {e}"
+
+def eliminar_compra_registro(compra_id):
+    """
+    Elimina permanentemente un registro de compra. 
+    (No necesita sincronización ya que no toca gastos_caja).
+    """
+    try:
+        response = supabase.table('cierre_compras').delete().eq('id', compra_id).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al eliminar el registro de compra: {e}"
