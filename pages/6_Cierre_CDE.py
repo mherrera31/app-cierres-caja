@@ -257,11 +257,13 @@ with st.form(key="form_conteo_cde"):
             st.divider()
 
     with tab_metodos_info:
-        st.subheader("3. Métodos Informativos (No-CDE que SÍ recibieron pagos hoy)")
-        st.caption("Estos métodos no requieren 'Match' y no bloquean el cierre, solo se muestran para control.")
+        st.subheader("3. Métodos Informativos (Control)")
+        st.caption("Estos métodos no requieren 'Match' y no bloquean el cierre.")
         
+        # --- Sección 1: Métodos Conocidos (No-CDE) ---
+        st.markdown("**Métodos Conocidos (No-CDE) que recibieron pagos:**")
         if not metodos_informativos_lista:
-            st.info("No se detectaron pagos en otros métodos (que no sean Efectivo ni CDE).")
+            st.info("No se detectaron pagos en métodos conocidos No-CDE.")
         else:
             for metodo_info in metodos_informativos_lista:
                 nombre = metodo_info['nombre']
@@ -269,6 +271,40 @@ with st.form(key="form_conteo_cde"):
                 st.metric(f"{nombre} (Sistema)", f"${Decimal(str(total)):,.2f}")
                 # Guardamos esto también en el JSON para el reporte
                 verificacion_json_output[f"INFO_{nombre}"] = float(total)
+
+        st.divider()
+
+        # --- Sección 2: Pagos Huérfanos (Métodos Desconocidos) ---
+        st.markdown("**Pagos Huérfanos (Métodos Desconocidos):**")
+        
+        # Calcular Huérfanos:
+        # 1. Obtener nombres de todos los métodos que SÍ conocemos
+        nombres_cde_conocidos = {m['nombre'] for m in metodos_pago_cde_lista}
+        nombres_info_conocidos = {m['nombre'] for m in metodos_informativos_lista}
+        todos_los_nombres_conocidos = nombres_cde_conocidos.union(nombres_info_conocidos)
+        
+        # 2. Obtener nombres de todos los métodos que SÍ recibieron pagos
+        todos_los_metodos_recibidos = set(totales_sistema_metodos_dict.keys())
+        
+        # 3. La diferencia son los huérfanos
+        nombres_huerfanos = todos_los_metodos_recibidos - todos_los_nombres_conocidos
+        
+        pagos_huerfanos_lista = []
+        if nombres_huerfanos:
+            for nombre_h in nombres_huerfanos:
+                total_h = totales_sistema_metodos_dict[nombre_h]
+                pagos_huerfanos_lista.append({"nombre": nombre_h, "total": total_h})
+
+        if not pagos_huerfanos_lista:
+            st.info("No se detectaron pagos con métodos desconocidos (Huérfanos).")
+        else:
+            st.warning("¡Alerta! Se recibieron pagos de métodos no registrados en el sistema.")
+            for pago_h in pagos_huerfanos_lista:
+                nombre_h = pago_h['nombre']
+                total_h = pago_h['total']
+                st.metric(f"{nombre_h} (Huérfano)", f"${Decimal(str(total_h)):,.2f}")
+                # Guardamos huérfanos en el JSON también
+                verificacion_json_output[f"HUERFANO_{nombre_h}"] = float(total_h)
 
     
     submitted = st.form_submit_button("Guardar Conteos", type="secondary")
