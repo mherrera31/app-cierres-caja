@@ -124,6 +124,13 @@ if not cierre_cde_actual:
 
 # CASO 3: El cierre está ABIERTO (cierre_cde_actual existe). Continuamos con la app.
 cierre_cde_id = cierre_cde_actual['id']
+    # --- AÑADIR ESTE BLOQUE NUEVO ---
+if st.button("🔄 Refrescar Totales del Sistema (Pagos)", help="Haga clic aquí si han entrado nuevos pagos (Yappy, Tarjeta, etc.) después de que abrió esta página."):
+    # Limpiamos el caché de la función que lee la tabla 'pagos'
+    cargar_totales_sistema.clear()
+    st.success("Totales del sistema refrescados.")
+    st.rerun()
+# --- FIN DEL BLOQUE NUEVO ---
 
 # --- 5. CARGAR MÉTODOS CDE (PARA EL FORMULARIO) ---
 @st.cache_data(ttl=600)
