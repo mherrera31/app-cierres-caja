@@ -1,5 +1,5 @@
 # pages/6_Cierre_CDE.py
-# VERSIÓN 3 (Flujo de "Abrir Cierre" + UI de 2 Pestañas + Finalizar dentro de Tab)
+# VERSIÓN 4 (Con carga de FOTOS opcional en Verificación)
 
 import streamlit as st
 import sys
@@ -8,6 +8,7 @@ import database
 import pytz
 from datetime import datetime
 from decimal import Decimal
+import tempfile # Necesario para subir archivos
 
 # --- BLOQUE DE CORRECCIÓN DE IMPORTPATH ---
 script_dir = os.path.dirname(__file__)
@@ -75,8 +76,7 @@ fecha_hoy_str = datetime.now(tz_panama).strftime('%Y-%m-%d')
 
 st.header(f"Verificación para: {sucursal_nombre_sel} | Fecha: {fecha_hoy_str}")
 
-# --- BOTÓN DE REFRESCO MANUAL (DEL PASO 79) ---
-if st.button("🔄 Refrescar Totales del Sistema (Pagos)", help="Haga clic aquí si han entrado nuevos pagos (Yappy, Tarjeta, etc.) después de que abrió esta página."):
+if st.button("🔄 Refrescar Totales del Sistema (Pagos)"):
     cargar_totales_sistema.clear()
     st.success("Totales del sistema refrescados.")
     st.rerun()
@@ -102,20 +102,13 @@ if err_busqueda:
     st.stop()
 
 # --- 4. LÓGICA DE ESTADO ---
-
-# CASO 1: Cierre ya está CERRADO
 if cierre_cde_actual and cierre_cde_actual.get('estado') == 'CERRADO':
     st.success(f"El Cierre CDE para hoy ya fue FINALIZADO.")
-    if cierre_cde_actual.get('discrepancia'):
-        st.warning("Este cierre fue forzado por un Admin y presenta discrepancia.")
     st.stop()
 
-# CASO 2: NO existe cierre. Mostrar botón para CREAR.
 if not cierre_cde_actual:
     st.warning("No se ha iniciado el Cierre CDE para esta sucursal hoy.")
-    st.subheader("Totales de Sistema Detectados (Tabla Pagos):")
-    st.metric("Total Efectivo (Sistema)", f"${Decimal(total_sistema_efectivo):,.2f}")
-    
+    st.metric("Total Efectivo (Sistema detectado)", f"${Decimal(total_sistema_efectivo):,.2f}")
     if st.button("▶️ Abrir Cierre de Verificación CDE", type="primary"):
         with st.spinner("Creando nuevo cierre CDE..."):
             _, err_crear = database.crear_nuevo_cierre_cde(fecha_hoy_str, sucursal_id_actual, usuario_id_actual)
@@ -127,7 +120,6 @@ if not cierre_cde_actual:
             st.rerun()
     st.stop() 
 
-# CASO 3: El cierre está ABIERTO. Continuamos.
 cierre_cde_id = cierre_cde_actual['id']
 
 # --- 5. CARGAR MÉTODOS CDE (DEPENDENCIAS DEL FORMULARIO) ---
@@ -140,20 +132,17 @@ def cargar_metodos_cde_activos():
     return metodos
 
 metodos_pago_cde_lista = cargar_metodos_cde_activos()
-
-# Cargar conteos guardados previamente
 conteo_efectivo_guardado = cierre_cde_actual.get('detalle_conteo_efectivo') or {}
 detalle_efectivo_guardado = conteo_efectivo_guardado.get('detalle', {})
 verificacion_metodos_guardado = cierre_cde_actual.get('verificacion_metodos') or {}
 
-
 # --- 6. INTERFAZ DE CONTEO Y VERIFICACIÓN (FORMULARIO PRINCIPAL) ---
 st.subheader("Formulario de Conteo y Verificación Manual")
-all_match_ok = True # Flag global de discrepancia
+all_match_ok = True 
+widget_data_files = {} # Diccionario para almacenar los widgets de file_uploader
 
 with st.form(key="form_conteo_cde"):
 
-    # AHORA SOLO 2 TABS: Efectivo y Verificación (que incluye Match y Huérfanos)
     tab_efectivo, tab_verificacion = st.tabs([
         "💵 Conteo de Efectivo", 
         "💳 Verificación y Reportes"
@@ -187,7 +176,6 @@ with st.form(key="form_conteo_cde"):
                 cantidad = col_inp.number_input(f"Input_{den['nombre']}", label_visibility="collapsed", min_value=0, step=1, value=cantidad_guardada, key=f"den_final_cde_{den['nombre']}")
                 inputs_conteo[den['nombre']] = {"cantidad": cantidad, "valor": den['valor']}
                 total_calculado_fisico += Decimal(str(cantidad)) * Decimal(str(den['valor']))
-        # (Fin del generador)
         
         st.divider()
         st.header(f"Total Contado Físico: ${total_calculado_fisico:,.2f}")
@@ -208,7 +196,7 @@ with st.form(key="form_conteo_cde"):
 
     with tab_verificacion:
         
-        verificacion_json_output = {} # Para guardar todos los datos de esta pestaña
+        verificacion_json_output = {} # Preparamos el JSON para guardar los datos
         
         # --- Sección 1: Verificación Métodos CDE (Match Requerido) ---
         st.subheader("2. Verificación Manual de Métodos CDE (Requerido para Match)")
@@ -219,11 +207,15 @@ with st.form(key="form_conteo_cde"):
         nombres_cde_conocidos = set()
         for metodo in metodos_pago_cde_lista:
             nombre_metodo = metodo['nombre']
-            nombres_cde_conocidos.add(nombre_metodo) # Añadir a la lista de conocidos
+            nombres_cde_conocidos.add(nombre_metodo) 
             
             total_sistema = totales_sistema_metodos_dict.get(nombre_metodo, 0.0)
             st.markdown(f"**Verificando: {nombre_metodo}**")
-            valor_manual_guardado = verificacion_metodos_guardado.get(nombre_metodo, 0.0)
+            
+            # LEEMOS LA NUEVA ESTRUCTURA JSON GUARDADA
+            metodo_guardado_obj = verificacion_metodos_guardado.get(nombre_metodo, {})
+            valor_manual_guardado = metodo_guardado_obj.get('total_manual', 0.0)
+            url_foto_guardada = metodo_guardado_obj.get('url_foto', None)
             
             col_m1, col_m2, col_m3 = st.columns(3)
             col_m1.metric("Total Sistema (Pagos)", f"${Decimal(str(total_sistema)):,.2f}")
@@ -239,7 +231,7 @@ with st.form(key="form_conteo_cde"):
             metodo_match_ok = abs(diferencia_metodo) < Decimal('0.01')
             
             if not metodo_match_ok:
-                all_match_ok = False # Marcamos discrepancia global
+                all_match_ok = False 
 
             col_m3.metric(
                 "Diferencia",
@@ -248,47 +240,63 @@ with st.form(key="form_conteo_cde"):
                 delta_color="normal" if metodo_match_ok else "inverse"
             )
             
-            verificacion_json_output[nombre_metodo] = valor_manual # Guardamos el input manual
+            # --- NUEVO: Input de FOTO OPCIONAL ---
+            file_uploader_key = f"file_cde_{metodo['id']}"
+            if url_foto_guardada:
+                st.markdown(f"✅ Foto Guardada: **[Ver Foto]({url_foto_guardada})**")
+            
+            file_uploader = st.file_uploader(
+                f"Subir foto voucher {nombre_metodo} (Opcional)", 
+                type=["jpg", "jpeg", "png"], 
+                key=file_uploader_key
+            )
+            
+            # Guardamos los widgets y datos necesarios para el procesamiento
+            widget_data_files[nombre_metodo] = {
+                "widget_obj": file_uploader,
+                "url_guardada_previa": url_foto_guardada,
+                "total_manual": valor_manual
+            }
+            # Guardamos datos para el reporte Huérfano
+            verificacion_json_output[nombre_metodo] = {
+                "total_manual": float(valor_manual),
+                "total_sistema": float(total_sistema),
+                "match_ok": metodo_match_ok,
+                "url_foto": url_foto_guardada # Default: la foto que ya estaba
+            }
             st.divider()
 
-        # --- Sección 2: Pagos Huérfanos (Como pediste) ---
+        # --- Sección 2: Pagos Huérfanos ---
         st.subheader("3. Pagos Huérfanos (Métodos Desconocidos)")
-        st.caption("Pagos recibidos con un nombre de método que no está registrado en 'Metodos de Pago'. Solo informativo.")
-
-        todos_los_metodos_recibidos = set(totales_sistema_metodos_dict.keys())
-        # (Obtenemos los nombres de TODOS los métodos maestros para comparar)
+        
         metodos_maestros_todos, _ = database.obtener_metodos_pago() 
         nombres_maestros_conocidos = {m['nombre'] for m in metodos_maestros_todos} if metodos_maestros_todos else set()
-
+        todos_los_metodos_recibidos = set(totales_sistema_metodos_dict.keys())
         nombres_huerfanos = todos_los_metodos_recibidos - nombres_maestros_conocidos
         
-        pagos_huerfanos_lista = []
-        if nombres_huerfanos:
-            for nombre_h in nombres_huerfanos:
-                total_h = totales_sistema_metodos_dict[nombre_h]
-                pagos_huerfanos_lista.append({"nombre": nombre_h, "total": total_h})
-
-        if not pagos_huerfanos_lista:
+        if not nombres_huerfanos:
             st.info("No se detectaron pagos con métodos desconocidos (Huérfanos).")
         else:
-            st.warning("¡Alerta! Se recibieron pagos de métodos no registrados en el sistema.")
-            for pago_h in pagos_huerfanos_lista:
-                nombre_h = pago_h['nombre']
-                total_h = pago_h['total']
+            st.warning("¡Alerta! Se recibieron pagos de métodos no registrados.")
+            for nombre_h in nombres_huerfanos:
+                total_h = totales_sistema_metodos_dict[nombre_h]
                 st.metric(f"{nombre_h} (Huérfano)", f"${Decimal(str(total_h)):,.2f}")
-                verificacion_json_output[f"HUERFANO_{nombre_h}"] = float(total_h)
+                verificacion_json_output[f"HUERFANO_{nombre_h}"] = {
+                    "total_manual": 0.0, # No hay match para huérfanos
+                    "total_sistema": float(total_h),
+                    "match_ok": False,
+                    "url_foto": None
+                }
 
         st.divider()
 
         # --- SECCIÓN DE FINALIZACIÓN (MOVIDA AQUÍ) ---
         st.header("4. Finalización del Cierre CDE")
-
         if all_match_ok:
             st.info("Todo cuadrado. El cierre puede ser finalizado.")
         else:
             st.error("Existen discrepancias en Efectivo o en Métodos CDE. Revisa los conteos.")
 
-        # Botón de Finalizar (para todos, pero deshabilitado si hay discrepancia)
         if st.button("FINALIZAR CIERRE CDE", type="primary", disabled=not all_match_ok, key="btn_finalizar"):
             with st.spinner("Finalizando..."):
                 _, err_final = database.finalizar_cierre_cde(cierre_cde_id, con_discrepancia=False)
@@ -300,7 +308,6 @@ with st.form(key="form_conteo_cde"):
                 cargar_totales_sistema.clear()
                 st.rerun()
 
-        # Botón de Admin (solo visible para Admin, y solo si hay discrepancia)
         if not all_match_ok and rol_usuario == 'admin':
             st.warning("ADMIN: El cierre presenta un DESCUADRE. Puedes forzar la finalización.")
             if st.button("Forzar Cierre con Discrepancia (Admin)", key="btn_forzar"):
@@ -314,7 +321,7 @@ with st.form(key="form_conteo_cde"):
                     st.rerun()
 
     # --- BOTÓN DE GUARDAR (FUERA DE LOS TABS, PERO DENTRO DEL FORM) ---
-    submitted = st.form_submit_button("Guardar Conteos (Sin Finalizar)", type="secondary")
+    submitted = st.form_submit_button("Guardar Conteos y Fotos (Sin Finalizar)", type="secondary")
 
     if submitted:
         # Preparar el JSON de conteo de efectivo
@@ -326,19 +333,48 @@ with st.form(key="form_conteo_cde"):
                     "subtotal": float(Decimal(str(data['cantidad'])) * Decimal(str(data['valor'])))
                 }
         
-        with st.spinner("Guardando datos..."):
+        with st.spinner("Guardando datos y subiendo fotos (si las hay)..."):
+            
+            # --- LÓGICA DE SUBIDA DE FOTOS (NUEVO) ---
+            # Similar al cierre principal
+            hubo_error_subida = False
+            for nombre_metodo, data_widget in widget_data_files.items():
+                archivo_subido = data_widget["widget_obj"]
+                
+                if archivo_subido is not None:
+                    # Si el usuario subió un archivo NUEVO
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=archivo_subido.name) as tmp_file:
+                        tmp_file.write(archivo_subido.getvalue())
+                        ruta_temporal = tmp_file.name
+                    
+                    st.write(f"Subiendo foto para {nombre_metodo}...")
+                    # Usamos el ID del Cierre CDE para la ruta
+                    url_publica, err_subida = database.subir_archivo_storage(cierre_cde_id, nombre_metodo, ruta_temporal)
+                    os.remove(ruta_temporal) 
+                    
+                    if err_subida:
+                        st.error(f"FALLO AL SUBIR FOTO para {nombre_metodo}: {err_subida}")
+                        hubo_error_subida = True
+                    else:
+                        st.success(f"Foto para {nombre_metodo} subida.")
+                        # Actualizamos el JSON que vamos a guardar
+                        verificacion_json_output[nombre_metodo]['url_foto'] = url_publica
+            
+            if hubo_error_subida:
+                st.error("No se pudieron guardar los conteos debido a un error de subida de fotos.")
+                st.stop()
+
+            # --- Guardar en DB ---
             _, err_save = database.guardar_conteo_cde(
                 cierre_cde_id,
                 float(total_calculado_fisico),
                 datos_conteo_efectivo_dict,
-                verificacion_json_output 
+                verificacion_json_output # Este JSON ahora contiene los totales Y las URLs de fotos
             )
             
         if err_save:
             st.error(f"Error al guardar: {err_save}")
         else:
-            st.success("Conteos guardados con éxito.")
+            st.success("Conteos y fotos guardados con éxito.")
             cargar_totales_sistema.clear()
             st.rerun()
-
-# (Las llamadas a los botones de Finalizar ya no están aquí, se movieron a la Tab 2)
