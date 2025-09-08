@@ -1,12 +1,19 @@
 # pages/1_Reportes_Admin.py
 
 import streamlit as st
+import sys
+import os
+import database  # Esta importación ahora funcionará
 import pandas as pd
 from datetime import datetime
 
-import database  # Esta importación ahora funcionará
+# --- BLOQUE DE CORRECCIÓN DE IMPORTPATH (VITAL) ---
+script_dir = os.path.dirname(__file__)
+project_root = os.path.abspath(os.path.join(script_dir, '..'))
+sys.path.append(project_root)
+# --- FIN DEL BLOQUE ---
 
-# --- GUARDIÁN DE SEGURIDAD ---
+# --- GUARDIÁN DE SEGURIDAD (AÑADIDO) ---
 if not st.session_state.get("autenticado"):
     st.error("Acceso denegado. 🚫 Por favor, inicie sesión desde la página principal.")
     st.stop() 
@@ -36,7 +43,7 @@ def mostrar_reporte_denominaciones(titulo, data_dict):
         df = pd.DataFrame.from_dict(detalle, orient='index').reset_index()
         column_names = ["Denominación", "Cantidad", "Subtotal"]
         df.columns = column_names[:len(df.columns)]
-        # --- CORRECCIÓN DE BUG (InvalidWidthError) ---
+        # --- CORRECCIÓN DE ADVERTENCIA (width='stretch') ---
         st.dataframe(df, width='stretch', hide_index=True)
     except Exception as e:
         st.json(detalle)
@@ -101,7 +108,7 @@ def mostrar_reporte_gastos(cierre_id):
                 "Notas": gasto.get('notas')
             })
         
-        # --- CORRECCIÓN DE BUG (InvalidWidthError) ---
+        # --- CORRECCIÓN DE ADVERTENCIA (width='stretch') ---
         st.dataframe(df_data, width='stretch')
         st.metric("TOTAL GASTOS", f"${total_gastos:,.2f}")
 
@@ -114,8 +121,6 @@ def comando_reabrir(cierre_id):
         cargar_filtros_data.clear()
         st.rerun() 
 
-
-# --- CARGA DE DATOS PARA FILTROS ---
 @st.cache_data(ttl=600) 
 def cargar_filtros_data():
     sucursales_data, _ = database.obtener_sucursales()
@@ -135,7 +140,6 @@ if usuarios_db:
         opciones_usuario[u['nombre']] = u['id'] 
 
 
-# --- RENDERIZADO DE LA UI DE FILTROS ---
 st.header("Filtros de Búsqueda")
 col_filtros1, col_filtros2 = st.columns(2)
 
@@ -152,8 +156,6 @@ solo_disc = st.checkbox("Mostrar solo cierres con discrepancia inicial")
 sucursal_id_filtrar = opciones_sucursal[sel_sucursal_nombre]
 usuario_id_filtrar = opciones_usuario[sel_usuario_nombre]
 
-
-# --- LÓGICA DE BÚSQUEDA Y VISUALIZACIÓN DE RESULTADOS ---
 if st.button("Buscar Cierres", type="primary"):
     
     if fecha_ini and not fecha_fin:
