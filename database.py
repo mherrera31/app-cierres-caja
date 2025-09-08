@@ -678,22 +678,30 @@ def get_registros_carga_rango(sucursal_id, fecha_inicio, fecha_fin):
 
 def buscar_cierre_cde_existente_hoy(fecha_str, sucursal_id):
     """
-    Esta función SÓLO BUSCA un cierre (abierto o cerrado). NUNCA CREA.
+    (Función CORREGIDA - Flujo Botón "Abrir")
+    Esta función SÓLO BUSCA un cierre. Maneja manualmente la respuesta vacía.
     """
     try:
-        # Busca CUALQUIER cierre (abierto o cerrado) para ese día/sucursal
         response = supabase.table('cierres_cde') \
             .select('*') \
             .eq('fecha_operacion', fecha_str) \
             .eq('sucursal_id', sucursal_id) \
-            .maybe_single() \
-            .execute()
-        
+            .limit(1) \
+            .execute() # NOTA: Quitamos .maybe_single()
+
+        # Si la respuesta COMPLETA es Nula (fallo de red/API)
         if response is None:
-            return None, "Error API: Respuesta Nula al buscar cierre existente CDE"
+            return None, "Error de API: La respuesta de la base de datos fue Nula (None)."
+
+        # Si la consulta funciona, response.data AHORA ES UNA LISTA.
+        # Si la lista NO está vacía, devolvemos el primer (y único) elemento.
+        if response.data:
+            return response.data[0], None  # Devuelve el dict del registro existente
         
-        # Devuelve los datos (que serán None si no hay nada) o un error.
-        return response.data, None
+        # Si la lista ESTÁ vacía (CASO NORMAL: no hay cierre hoy),
+        # devolvemos datos Nulos y error Nulo. ESTO ES CORRECTO.
+        else:
+            return None, None 
 
     except Exception as e:
         return None, f"Error al buscar cierre CDE existente: {e}"
