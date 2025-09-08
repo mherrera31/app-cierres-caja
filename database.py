@@ -676,51 +676,37 @@ def get_registros_carga_rango(sucursal_id, fecha_inicio, fecha_fin):
     except Exception as e:
         return None, f"Error al buscar registros por rango: {e}"
 
-# --- INICIO DE FUNCIONES DEL MÓDULO CIERRE CDE ---
-
-# database.py (AÑADIR ESTE BLOQUE COMPLETO AL FINAL DEL ARCHIVO)
-
-# --- INICIO DE FUNCIONES DEL MÓDULO CIERRE CDE ---
+# --- INICIO DE FUNCIONES DEL MÓDULO CIERRE CDE (CON PARCHES DE SEGURIDAD) ---
 
 def obtener_sucursales_cde():
-    """
-    Obtiene solo las sucursales que están marcadas como CDE (terminan en 'CDE').
-    """
     try:
         response = supabase.table('sucursales').select('id, sucursal').like('sucursal', '%CDE').execute()
+        if response is None:
+            return [], "Error API: Respuesta Nula al buscar sucursales CDE"
         return response.data, None
     except Exception as e:
         return [], f"Error al obtener sucursales CDE: {e}"
 
 def obtener_metodos_pago_cde():
-    """
-    Obtiene solo los métodos de pago marcados con is_cde = true.
-    """
     try:
-        # Excluimos 'Efectivo' porque se maneja en un módulo separado (conteo)
         response = supabase.table('metodos_pago') \
             .select('id, nombre') \
             .eq('is_cde', True) \
             .neq('nombre', 'Efectivo') \
             .order('nombre') \
             .execute()
+        if response is None:
+            return [], "Error API: Respuesta Nula al buscar métodos CDE"
         return response.data, None
     except Exception as e:
         return [], f"Error al obtener métodos de pago CDE: {e}"
 
 def calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre):
-    """
-    Calcula la suma de todos los pagos (de la tabla 'pagos') para una sucursal 
-    y fecha específicas, agrupados por método de pago.
-    """
     try:
-        # Define el rango del día (desde 00:00 hasta 23:59:59 de ese día)
-        # Asumimos zona horaria de Panamá como en el resto de la app
         tz_panama = pytz.timezone('America/Panama')
         fecha_inicio_dia = tz_panama.localize(datetime.strptime(fecha_str, '%Y-%m-%d'))
         fecha_fin_dia = fecha_inicio_dia + timedelta(days=1)
         
-        # Leemos directo de la tabla de pagos
         response_pagos = supabase.table('pagos') \
             .select('monto, metodo_pago') \
             .eq('sucursal', sucursal_nombre) \
@@ -728,11 +714,13 @@ def calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre):
             .lt('created_at', fecha_fin_dia.isoformat()) \
             .execute()
         
+        if response_pagos is None:
+            return None, 0.0, "Error API: Respuesta Nula al calcular totales de pagos"
+            
         pagos = response_pagos.data
         if not pagos:
-            return {}, 0.0, None # Sin pagos, sin efectivo, sin error
+            return {}, 0.0, None 
 
-        # Procesar los totales en Python
         totales_por_metodo = {}
         total_efectivo = 0.0
         
@@ -747,9 +735,7 @@ def calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre):
                     totales_por_metodo[metodo] = Decimal('0.00')
                 totales_por_metodo[metodo] += monto
 
-        # Convertir Decimal a float para JSON
         totales_por_metodo_float = {k: float(v) for k, v in totales_por_metodo.items()}
-        
         return totales_por_metodo_float, float(total_efectivo), None
 
     except Exception as e:
@@ -757,12 +743,7 @@ def calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre):
 
 
 def buscar_o_crear_cierre_cde(fecha_str, sucursal_id, usuario_id, totales_sistema_efectivo):
-    """
-    Busca un Cierre CDE abierto para hoy. Si no existe, crea uno nuevo.
-    Si ya existe uno CERRADO, devuelve ese.
-    """
     try:
-        # 1. Buscar uno abierto
         response_abierto = supabase.table('cierres_cde') \
             .select('*') \
             .eq('fecha_operacion', fecha_str) \
@@ -771,10 +752,12 @@ def buscar_o_crear_cierre_cde(fecha_str, sucursal_id, usuario_id, totales_sistem
             .maybe_single() \
             .execute()
             
+        if response_abierto is None:
+            return None, "Error API: Respuesta Nula buscando cierre abierto CDE"
+            
         if response_abierto.data:
             return response_abierto.data, None
 
-        # 2. Buscar uno cerrado
         response_cerrado = supabase.table('cierres_cde') \
             .select('*') \
             .eq('fecha_operacion', fecha_str) \
@@ -783,10 +766,12 @@ def buscar_o_crear_cierre_cde(fecha_str, sucursal_id, usuario_id, totales_sistem
             .maybe_single() \
             .execute()
 
+        if response_cerrado is None:
+            return None, "Error API: Respuesta Nula buscando cierre cerrado CDE"
+
         if response_cerrado.data:
             return response_cerrado.data, "EXISTE_CERRADO"
 
-        # 3. Si no existe ninguno, crear uno nuevo
         datos_nuevo = {
             "fecha_operacion": fecha_str,
             "sucursal_id": sucursal_id,
@@ -796,15 +781,15 @@ def buscar_o_crear_cierre_cde(fecha_str, sucursal_id, usuario_id, totales_sistem
         }
         response_nuevo = supabase.table('cierres_cde').insert(datos_nuevo).execute()
         
+        if response_nuevo is None:
+            return None, "Error API: Respuesta Nula al CREAR cierre CDE"
+            
         return response_nuevo.data[0], None
 
     except Exception as e:
         return None, f"Error al buscar o crear cierre CDE: {e}"
 
 def guardar_conteo_cde(cierre_cde_id, total_contado, detalle_conteo, verificacion_metodos_json):
-    """
-    Actualiza el Cierre CDE con los conteos manuales del usuario.
-    """
     try:
         datos = {
             "total_efectivo_contado": total_contado,
@@ -812,27 +797,26 @@ def guardar_conteo_cde(cierre_cde_id, total_contado, detalle_conteo, verificacio
             "verificacion_metodos": verificacion_metodos_json
         }
         response = supabase.table('cierres_cde').update(datos).eq('id', cierre_cde_id).execute()
+        if response is None:
+            return None, "Error API: Respuesta Nula al guardar conteo CDE"
         return response.data, None
     except Exception as e:
         return None, f"Error al guardar conteo CDE: {e}"
 
 def finalizar_cierre_cde(cierre_cde_id, con_discrepancia=False):
-    """
-    Marca el Cierre CDE como CERRADO, marcando si fue forzado (discrepancia).
-    """
     try:
         datos = {
             "estado": "CERRADO",
             "discrepancia": con_discrepancia
         }
         response = supabase.table('cierres_cde').update(datos).eq('id', cierre_cde_id).execute()
+        if response is None:
+            return None, "Error API: Respuesta Nula al finalizar cierre CDE"
         return response.data, None
     except Exception as e:
         return None, f"Error al finalizar cierre CDE: {e}"
 
-# --- FIN DE FUNCIONES CIERRE CDE ---
-
-# database.py (AÑADIR ESTA NUEVA FUNCIÓN AL FINAL)
+# --- FIN DE FUNCIONES CIERRE CDE (CON PARCHES) ---
 
 def admin_buscar_cierres_cde_filtrados(fecha_inicio, fecha_fin, sucursal_id=None, usuario_id=None):
     """
