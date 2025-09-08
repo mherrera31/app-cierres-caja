@@ -801,3 +801,37 @@ def finalizar_cierre_cde(cierre_cde_id, con_discrepancia=False):
         return None, f"Error al finalizar cierre CDE: {e}"
 
 # --- FIN BLOQUE COMPLETO CIERRE CDE ---
+
+# database.py (AÑADIR ESTA FUNCIÓN AL FINAL DEL ARCHIVO)
+
+def admin_buscar_cierres_cde_filtrados(fecha_inicio, fecha_fin, sucursal_id=None, usuario_id=None):
+    """
+    Busca y filtra todos los cierres de CDE (solo el módulo de verificación).
+    (Esta es la función que faltaba y que el reporte '1_Reportes_Admin.py' necesita).
+    """
+    try:
+        query = supabase.table('cierres_cde').select(
+            '*, perfiles(nombre), sucursales(sucursal)'
+        )
+
+        if fecha_inicio:
+            query = query.gte('fecha_operacion', fecha_inicio)
+        if fecha_fin:
+            query = query.lte('fecha_operacion', fecha_fin)
+            
+        if sucursal_id:
+            query = query.eq('sucursal_id', sucursal_id)
+
+        if usuario_id:
+            query = query.eq('usuario_id', usuario_id)
+
+        response = query.order('fecha_operacion', desc=True).execute()
+        
+        # Parche de seguridad (por si acaso)
+        if response is None:
+            return None, "Error API: Respuesta Nula al buscar cierres CDE filtrados"
+
+        return response.data, None
+
+    except Exception as e:
+        return [], f"Error al buscar cierres CDE filtrados: {e}"
