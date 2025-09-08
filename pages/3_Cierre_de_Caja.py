@@ -1,5 +1,5 @@
 # pages/3_Cierre_de_Caja.py
-# VERSIÓN CON CORRECCIÓN DEL KEYERROR EN TAB_GASTOS
+# VERSIÓN CONSOLIDADA (CON LÓGICA DE VERIFICACIÓN BASADA EN SOCIO)
 
 import streamlit as st
 import database
@@ -192,7 +192,7 @@ def render_tab_inicial():
             st.success("¡Saldo inicial actualizado con éxito!")
             st.rerun()
 
-# --- Módulo: tab_gastos (CORREGIDO) ---
+# --- Módulo: tab_gastos ---
 @st.cache_data(ttl=600)
 def cargar_categorias_gastos_activas():
     categorias_data, err = database.obtener_categorias_gastos()
@@ -239,9 +239,7 @@ def render_tab_gastos():
     sucursal_id = cierre_actual['sucursal_id']
     sucursal_nombre = st.session_state['cierre_sucursal_seleccionada_nombre']
 
-    # --- 1. Formulario para AÑADIR Gasto ---
     st.subheader("Registrar Nuevo Gasto en Efectivo")
-    
     categorias_dict = cargar_categorias_gastos_activas()
     if not categorias_dict:
         st.error("No se encontraron categorías de gastos activas. Por favor, añada categorías en el Panel de Administración.")
@@ -271,21 +269,15 @@ def render_tab_gastos():
             st.session_state.pop('resumen_calculado', None) 
             st.rerun()
 
-    # --- 2. Lista de Gastos Registrados (CON data_editor) ---
     st.divider()
     st.subheader("Gastos Registrados en este Cierre")
-    
     df_gastos, total_gastos = cargar_gastos_registrados(cierre_id)
     
     if df_gastos.empty:
         st.info("Aún no se han registrado gastos en este cierre.")
     else:
-        # --- CORRECCIÓN DE BUG (KeyError: 'Eliminar') ---
-        # 1. Añadimos la columna virtual ANTES de hacer la copia.
         df_gastos["Eliminar"] = False 
-        # 2. HACEMOS LA COPIA DESPUÉS.
         df_original = df_gastos.copy()
-        # --- FIN DE CORRECCIÓN ---
         
         column_config_gastos = {
             "ID": None, 
@@ -293,33 +285,25 @@ def render_tab_gastos():
             "Monto": st.column_config.NumberColumn("Monto", format="$ %.2f", disabled=True),
             "Notas": st.column_config.TextColumn("Notas", disabled=True),
             "Eliminar": st.column_config.CheckboxColumn(
-                "Eliminar",
-                help="Marca esta casilla para eliminar el gasto.",
-                default=False
+                "Eliminar", help="Marca esta casilla para eliminar el gasto.", default=False
             )
         }
 
         edited_df_gastos = st.data_editor(
             df_gastos,
             column_config=column_config_gastos,
-            width='stretch', # Corrección de advertencia
+            width='stretch', 
             hide_index=True,
             key="editor_gastos"
         )
 
-        # --- Lógica de Detección de Eliminación ---
         try:
-            # Esta lógica ahora funciona porque df_original TAMBIÉN tiene la columna "Eliminar"
             fila_eliminada = (edited_df_gastos["Eliminar"] == True) & (df_original["Eliminar"] == False)
-            
             if fila_eliminada.any():
                 gasto_id_a_eliminar = edited_df_gastos.loc[fila_eliminada, "ID"].iloc[0]
                 gasto_nombre = edited_df_gastos.loc[fila_eliminada, "Categoría"].iloc[0]
                 gasto_monto = edited_df_gastos.loc[fila_eliminada, "Monto"].iloc[0]
-
-                # ESTA ES LA CONFIRMACIÓN QUE PEDISTE:
                 st.warning(f"¿Seguro que deseas eliminar el gasto de {gasto_nombre} por ${gasto_monto:,.2f}?")
-                
                 if st.button("Confirmar Eliminación"):
                     with st.spinner("Eliminando gasto..."):
                         _, err_del = database.eliminar_gasto_caja(gasto_id_a_eliminar)
@@ -328,9 +312,8 @@ def render_tab_gastos():
                         else:
                             st.success("Gasto eliminado.")
                             cargar_gastos_registrados.clear()
-                            st.session_state.pop('resumen_calculado', None) # Limpiar caché de resumen
+                            st.session_state.pop('resumen_calculado', None) 
                             st.rerun()
-
         except Exception as e:
             st.error(f"Ocurrió un error procesando la eliminación: {e}")
 
@@ -340,7 +323,7 @@ def render_tab_gastos():
 # --- Módulo: tab_ingresos_adic ---
 @st.cache_data(ttl=600)
 def cargar_datos_ingresos():
-    socios, err_s = database.obtener_socios()
+    socios, err_s = database.obtener_socios() # <--- OBTENER SOCIOS AHORA INCLUYE LOS FLAGS (Paso 191)
     metodos_pago, err_mp = database.obtener_metodos_pago()
     if err_s or err_mp:
         return None, None, f"Error Socios: {err_s} | Error MP: {err_mp}"
@@ -348,6 +331,7 @@ def cargar_datos_ingresos():
 
 @st.cache_data(ttl=15)
 def cargar_ingresos_existentes(cierre_id):
+    # Esta función ahora también obtiene los flags del socio (Paso 191)
     ingresos_existentes, err_ie = database.obtener_ingresos_adicionales_del_cierre(cierre_id)
     if err_ie:
         st.error(f"Error cargando ingresos existentes: {err_ie}")
@@ -425,10 +409,12 @@ def render_tab_ingresos_adic():
             st.info("No se detectaron cambios para guardar.")
 
 
-# --- Módulo: tab_resumen ---
+# --- Módulo: tab_resumen (LOGICA ACTUALIZADA AL PASO 191) ---
 def _ejecutar_calculo_resumen(cierre_id, cierre_actual_obj):
     with st.spinner("Calculando resumen con datos actualizados..."):
         saldo_inicial = Decimal(str(cierre_actual_obj.get('saldo_inicial_efectivo') or 0.0))
+        
+        # Pagos (Ventas)
         pagos_venta, err_p = database.obtener_pagos_del_cierre(cierre_id)
         total_pagos_venta_efectivo = Decimal('0.00')
         pagos_venta_efectivo_lista = []
@@ -439,22 +425,35 @@ def _ejecutar_calculo_resumen(cierre_id, cierre_actual_obj):
                     monto = Decimal(str(pago.get('monto') or 0.0))
                     total_pagos_venta_efectivo += monto
                     pagos_venta_efectivo_lista.append(pago) 
+
+        # Ingresos Adicionales (CON REGLAS DE SOCIO)
         ingresos_adicionales, err_i = database.obtener_ingresos_adicionales_del_cierre(cierre_id)
         total_ingresos_adicionales_efectivo = Decimal('0.00')
         ingresos_adic_efectivo_lista = []
         if not err_i and ingresos_adicionales:
             for ingreso in ingresos_adicionales:
                 metodo = ingreso.get('metodo_pago')
-                if metodo and metodo.lower() == 'efectivo':
+                # Obtenemos las reglas del socio (del JOIN que hicimos en database.py)
+                reglas_socio = ingreso.get('socios') or {}
+                
+                # REGLA NUEVA: Solo sumar al efectivo si el método es efectivo Y el socio tiene el flag TRUE
+                if (metodo and metodo.lower() == 'efectivo' and 
+                    reglas_socio.get('afecta_conteo_efectivo') == True):
+                    
                     monto = Decimal(str(ingreso.get('monto') or 0.0))
                     total_ingresos_adicionales_efectivo += monto
                     ingresos_adic_efectivo_lista.append(ingreso)
+
+        # Gastos
         gastos, err_g = database.obtener_gastos_del_cierre(cierre_id)
         total_gastos = Decimal('0.00')
         if not err_g and gastos:
             for gasto in gastos:
                 total_gastos += Decimal(str(gasto.get('monto') or 0.0))
+
+        # Cálculo Final
         total_calculado_efectivo = (saldo_inicial + total_pagos_venta_efectivo + total_ingresos_adicionales_efectivo) - total_gastos
+        
         st.session_state.cierre_actual_objeto['total_calculado_teorico'] = float(total_calculado_efectivo)
         st.session_state.resumen_calculado = {
             "saldo_inicial": saldo_inicial, "total_pagos_venta_efectivo": total_pagos_venta_efectivo,
@@ -470,16 +469,21 @@ def render_tab_resumen():
         st.error("Error: No hay ningún cierre cargado en la sesión.")
         st.stop()
     cierre_id = cierre_actual['id']
+    
     st.subheader("Cálculo del Saldo Teórico de Efectivo")
     st.info("Este es el resumen de todo el efectivo. Presiona 'Recalcular' si has añadido nuevos gastos o ingresos en las otras pestañas.")
+    
     if st.button("Recalcular Resumen (Refrescar Manual)", type="primary"):
         _ejecutar_calculo_resumen(cierre_id, cierre_actual)
         st.success("Resumen refrescado.")
+        
     resumen_cache = st.session_state.get('resumen_calculado')
     if not resumen_cache or resumen_cache.get('cache_id') != cierre_id:
         _ejecutar_calculo_resumen(cierre_id, cierre_actual)
+        
     st.divider()
     resumen_guardado = st.session_state.get('resumen_calculado')
+    
     if not resumen_guardado:
         st.warning("Calculando datos del resumen... (Presiona el botón de Recalcular si esto no desaparece).")
     else:
@@ -488,27 +492,33 @@ def render_tab_resumen():
         val_ventas_efec = resumen_guardado.get('total_pagos_venta_efectivo') or 0.0
         val_ing_adic_efec = resumen_guardado.get('total_ingresos_adicionales_efectivo') or 0.0
         val_total_gastos = resumen_guardado.get('total_gastos') or 0.0
+        
         st.header(f"Total Teórico en Caja: ${val_total_teorico:,.2f}")
         st.caption("Esta es la cantidad de efectivo que debería haber físicamente en caja antes del conteo final.")
+        
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("1. Saldo Inicial (Efectivo)", f"${val_saldo_ini:,.2f}")
         col2.metric("2. Ventas (Efectivo)", f"${val_ventas_efec:,.2f}")
         col3.metric("3. Ingresos Adic. (Efectivo)", f"${val_ing_adic_efec:,.2f}")
         col4.metric("4. Gastos (Efectivo)", f"$-{val_total_gastos:,.2f}", delta_color="inverse")
+
         st.divider()
         st.subheader("Detalles del Cálculo")
         lista_pagos = resumen_guardado.get('pagos_lista', [])
         lista_ingresos = resumen_guardado.get('ingresos_lista', [])
         lista_gastos = resumen_guardado.get('gastos_lista', [])
+        
         with st.expander("Ver detalle de Ventas en Efectivo"):
             if not lista_pagos: st.write("Sin ventas en efectivo.")
             else: st.write(f"Total de {len(lista_pagos)} pagos en efectivo sumando: ${val_ventas_efec:,.2f}")
-        with st.expander("Ver detalle de Ingresos Adicionales en Efectivo"):
-            if not lista_ingresos: st.write("Sin ingresos adicionales en efectivo.")
+        
+        with st.expander("Ver detalle de Ingresos Adicionales en Efectivo (Solo los que afectan caja)"):
+            if not lista_ingresos: st.write("Sin ingresos adicionales en efectivo que afecten caja.")
             else:
                 for ing in lista_ingresos:
                     socio_nombre = ing.get('socios', {}).get('nombre', 'N/A')
                     st.write(f"- Socio: {socio_nombre} | Monto: ${Decimal(str(ing.get('monto') or 0)):,.2f}")
+        
         with st.expander("Ver detalle de Gastos"):
             if not lista_gastos: st.write("Sin gastos registrados.")
             else:
@@ -650,19 +660,22 @@ def render_tab_caja_final():
             else:
                 for den, info in detalle_saldo_sig.items():
                     st.text(f"- {den}: {info['cantidad']} (=${info['subtotal']:,.2f})")
-            st.metric("Total Saldo Siguiente:", f"${float(saldo_sig_guardado.get('total', 0)):,.2f}")
+            st.metric("Total Saldo Siguiente:", f"${float(sig_guardado.get('total', 0)):,.2f}")
 
-# --- Módulo: tab_verificacion ---
+# --- Módulo: tab_verificacion (LOGICA ACTUALIZADA AL PASO 191) ---
 @st.cache_data(ttl=15) 
 def cargar_datos_verificacion(cierre_id):
     pagos_ventas_raw, err_p = database.obtener_pagos_del_cierre(cierre_id)
     metodos_maestros_raw, err_m = database.obtener_metodos_pago_con_flags()
+    # Obtenemos los ingresos CON los flags de socio (gracias al JOIN en la función de DB actualizada)
     ingresos_adic_raw, err_i = database.obtener_ingresos_adicionales_del_cierre(cierre_id)
+    
     if err_m:
          st.error(f"Error Crítico al cargar Métodos de Pago: {err_m}")
          st.stop()
     if err_p or err_i:
         st.warning(f"Error Pagos: {err_p} | Error Ingresos: {err_i}")
+        
     metodos_maestros = {}
     nombres_maestros = set()
     if metodos_maestros_raw:
@@ -671,6 +684,7 @@ def cargar_datos_verificacion(cierre_id):
                 nombre_lower = mp['nombre'].lower()
                 metodos_maestros[nombre_lower] = mp
                 nombres_maestros.add(nombre_lower)
+
     totales_sistema_ventas = {}
     nombres_ventas_registrados = set()
     if pagos_ventas_raw:
@@ -683,20 +697,16 @@ def cargar_datos_verificacion(cierre_id):
                 if nombre_lower not in totales_sistema_ventas:
                     totales_sistema_ventas[nombre_lower] = Decimal('0.00')
                 totales_sistema_ventas[nombre_lower] += monto
-    totales_sistema_ing_adic = {}
-    if ingresos_adic_raw:
-        for ing in ingresos_adic_raw:
-            nombre = ing.get('metodo_pago')
-            if nombre: 
-                nombre_lower = nombre.lower()
-                monto = Decimal(str(ing.get('monto', 0)))
-                if nombre_lower not in totales_sistema_ing_adic:
-                    totales_sistema_ing_adic[nombre_lower] = Decimal('0.00')
-                totales_sistema_ing_adic[nombre_lower] += monto
+            
     pagos_huerfanos = (nombres_ventas_registrados - nombres_maestros) - {'efectivo'}
+    set_maestros_verificables = set(metodos_maestros.keys()) - {'efectivo'}
+
     return {
-        "metodos_maestros": metodos_maestros, "totales_ventas": totales_sistema_ventas,
-        "totales_ing_adic": totales_sistema_ing_adic, "huerfanos": pagos_huerfanos
+        "metodos_maestros": metodos_maestros, 
+        "set_maestros_verificables": set_maestros_verificables,
+        "totales_ventas": totales_sistema_ventas,
+        "ingresos_adic_raw": ingresos_adic_raw or [], # Pasamos los ingresos crudos
+        "huerfanos": pagos_huerfanos
     }, None
 
 def render_tab_verificacion():
@@ -706,21 +716,22 @@ def render_tab_verificacion():
         st.stop()
     cierre_id = cierre_actual['id']
     rol_usuario = st.session_state['perfil']['rol']
+    
     datos_verif, error = cargar_datos_verificacion(cierre_id)
     if error:
         st.error(error)
         st.stop()
+        
     datos_guardados = cierre_actual.get('verificacion_pagos_detalle') or {}
     saved_verification_lookup = {item['metodo'].lower(): item for item in datos_guardados.get('verificacion_con_match', [])}
+    
     st.subheader("Estado de Conciliación General")
     saldo_teorico = Decimal(str(cierre_actual.get('total_calculado_teorico', 0.0)))
     conteo_final_dict = cierre_actual.get('saldo_final_detalle') or {}
     saldo_fisico = Decimal(str(conteo_final_dict.get('total', 0.0)))
     diferencia_cash = saldo_fisico - saldo_teorico
     cash_match_ok = abs(diferencia_cash) < Decimal('0.01')
-    delta_color = "off"
-    if not cash_match_ok: delta_color = "inverse"
-    else: delta_color = "normal"
+    delta_color = "normal" if cash_match_ok else "inverse"
     st.metric(
         label="1. ESTADO DE EFECTIVO (Diferencia de Caja Final)",
         value=f"${diferencia_cash:,.2f}",
@@ -728,52 +739,137 @@ def render_tab_verificacion():
         delta_color=delta_color
     )
     st.divider()
-    st.subheader("Sección 1: Pagos de Ventas (Requiere Match de Voucher)")
+
+    st.subheader("Sección 1: Pagos que Requieren Match de Voucher")
     vouchers_match_ok = True 
     json_verificacion_con_match = [] 
     widget_data = {} 
+    json_registros_informativos = [] # Movemos esto aquí
+
+    # --- LÓGICA DE VERIFICACIÓN (NUEVA ARQUITECTURA DEL PASO 191) ---
+    
     with st.form(key="form_verificacion_pagos"):
         if not datos_verif['metodos_maestros']:
              st.warning("No hay métodos de pago (reglas) cargados en la base de datos.")
-        for nombre_lower, regla_metodo in datos_verif['metodos_maestros'].items():
-            if nombre_lower == 'efectivo': continue 
+        
+        # 1. Iteramos sobre las REGLAS (métodos maestros), excluyendo efectivo
+        for nombre_lower in datos_verif['set_maestros_verificables']:
+            regla_metodo = datos_verif['metodos_maestros'][nombre_lower]
             nombre_display = regla_metodo['nombre']
-            total_sistema = datos_verif['totales_ventas'].get(nombre_lower, Decimal('0.00'))
-            data_guardada = saved_verification_lookup.get(nombre_lower, {})
-            valor_reportado_guardado = float(data_guardada.get('total_reportado', 0.0))
-            url_foto_guardada = data_guardada.get('url_foto', None)
-            st.markdown(f"**Verificando: {nombre_display}**")
-            cols = st.columns(3)
-            cols[0].metric("Total del Sistema", f"${total_sistema:,.2f}")
-            valor_reportado_input = cols[1].number_input(
-                "Total Reportado (Voucher)", min_value=0.0, step=0.01, format="%.2f",
-                value=valor_reportado_guardado, key=f"verif_num_{nombre_lower}"
+
+            # --- A. VENTAS (PAGOS) ---
+            # Esto siempre se verifica si la regla existe
+            total_ventas = datos_verif['totales_ventas'].get(nombre_lower, Decimal('0.00'))
+            
+            data_guardada_ventas = saved_verification_lookup.get(f"{nombre_lower}_ventas", {}) # Buscamos con sufijo
+            valor_reportado_guardado_ventas = float(data_guardada_ventas.get('total_reportado', 0.0))
+            url_foto_guardada_ventas = data_guardada_ventas.get('url_foto', None)
+            
+            st.markdown(f"**Verificando: {nombre_display} (VENTAS/POS)**")
+            cols_v, cols_v2, cols_v3 = st.columns(3)
+            cols_v[0].metric("Total Sistema (Ventas)", f"${total_ventas:,.2f}")
+            valor_reportado_ventas = cols_v[1].number_input(
+                "Total Reportado (Voucher Ventas)", min_value=0.0, step=0.01, format="%.2f",
+                value=valor_reportado_guardado_ventas, key=f"verif_num_{nombre_lower}_ventas"
             )
-            diff_voucher = Decimal(str(valor_reportado_input)) - total_sistema
-            voucher_ok = abs(diff_voucher) < Decimal('0.01')
-            if not voucher_ok: vouchers_match_ok = False 
-            cols[2].metric("Diferencia", f"${diff_voucher:,.2f}", 
-                           delta=f"{'OK' if voucher_ok else 'FALLO'}", 
-                           delta_color="normal" if voucher_ok else "inverse")
-            file_uploader = None
+            diff_v = Decimal(str(valor_reportado_ventas)) - total_ventas
+            voucher_v_ok = abs(diff_v) < Decimal('0.01')
+            if not voucher_v_ok: vouchers_match_ok = False
+            cols_v[2].metric("Diferencia", f"${diff_v:,.2f}", 
+                           delta=f"{'OK' if voucher_v_ok else 'FALLO'}", 
+                           delta_color="normal" if voucher_v_ok else "inverse")
+            
+            file_uploader_v = None
             if regla_metodo.get('requiere_foto_voucher', False):
-                if url_foto_guardada:
-                    st.markdown(f"✅ Foto Guardada: **[Ver Foto]({url_foto_guardada})**", unsafe_allow_html=True)
+                if url_foto_guardada_ventas:
+                    st.markdown(f"✅ Foto Guardada (Ventas): **[Ver Foto]({url_foto_guardada_ventas})**", unsafe_allow_html=True)
                 else:
-                    file_uploader = st.file_uploader(f"Subir foto de Voucher para {nombre_display}", type=["jpg", "jpeg", "png"], key=f"verif_file_{nombre_lower}")
-            widget_data[nombre_lower] = { "file_widget": file_uploader, "url_guardada": url_foto_guardada }
+                    file_uploader_v = st.file_uploader(f"Subir foto Voucher VENTAS ({nombre_display})", type=["jpg", "jpeg", "png"], key=f"verif_file_{nombre_lower}_ventas")
+            
+            widget_data[f"{nombre_lower}_ventas"] = { "file_widget": file_uploader_v, "url_guardada": url_foto_guardada_ventas, "nombre_display": f"{nombre_display}_Ventas" }
             json_verificacion_con_match.append({
-                "metodo": nombre_display, "fuente": "Ventas",
+                "metodo": nombre_display, "fuente": "Ventas (POS)",
                 "requiere_foto": regla_metodo.get('requiere_foto_voucher', False),
-                "total_sistema": float(total_sistema), "total_reportado": float(valor_reportado_input),
-                "match_ok": voucher_ok, "url_foto": None 
+                "total_sistema": float(total_ventas), "total_reportado": float(valor_reportado_ventas),
+                "match_ok": voucher_v_ok, "url_foto": None 
+            })
+
+        # 2. Iteramos sobre los INGRESOS ADICIONALES y verificamos si alguno necesita match
+        st.markdown("---")
+        st.markdown("**Verificando: Ingresos Adicionales (Socios)**")
+        
+        ingresos_a_verificar = []
+        ingresos_informativos = []
+
+        for ing in datos_verif['ingresos_adic_raw']:
+            metodo_lower = (ing.get('metodo_pago') or "").lower()
+            reglas_socio = ing.get('socios') or {}
+            
+            # REGLA: ¿Es un método verificable (ej Tarjeta) Y el socio requiere verificación?
+            if (metodo_lower in datos_verif['set_maestros_verificables'] and 
+                reglas_socio.get('requiere_verificacion_voucher') == True):
+                ingresos_a_verificar.append(ing)
+            # REGLA: ¿Es efectivo Y el socio NO afecta caja? (Tratarlo como informativo)
+            elif (metodo_lower == 'efectivo' and 
+                  reglas_socio.get('afecta_conteo_efectivo') == False):
+                ingresos_informativos.append(ing)
+            # REGLA: ¿No es efectivo Y (no es verificable O el socio no lo requiere)?
+            elif (metodo_lower != 'efectivo' and 
+                  (metodo_lower not in datos_verif['set_maestros_verificables'] or 
+                   reglas_socio.get('requiere_verificacion_voucher') == False)):
+                ingresos_informativos.append(ing)
+
+        if not ingresos_a_verificar:
+            st.caption("No hay ingresos adicionales que requieran verificación de voucher.")
+
+        for ing in ingresos_a_verificar:
+            nombre_metodo = ing['metodo_pago']
+            nombre_lower = nombre_metodo.lower()
+            socio_nombre = ing.get('socios', {}).get('nombre', 'N/A')
+            regla_metodo = datos_verif['metodos_maestros'][nombre_lower]
+            total_sistema_ing = Decimal(str(ing.get('monto', 0)))
+            lookup_key = f"{nombre_lower}_ing_{ing['id']}" # Key única
+
+            data_guardada_ing = saved_verification_lookup.get(lookup_key, {})
+            valor_reportado_guardado_ing = float(data_guardada_ing.get('total_reportado', 0.0))
+            url_foto_guardada_ing = data_guardada_ing.get('url_foto', None)
+
+            st.markdown(f"**Socio {socio_nombre} / M&eacute;todo: {nombre_metodo}**")
+            cols_i, cols_i2, cols_i3 = st.columns(3)
+            cols_i[0].metric("Total Sistema (Ingreso)", f"${total_sistema_ing:,.2f}")
+            valor_reportado_ing = cols_i[1].number_input(
+                "Monto Reportado (Voucher Socio)", min_value=0.0, step=0.01, format="%.2f",
+                value=valor_reportado_guardado_ing, key=f"verif_num_{lookup_key}"
+            )
+            diff_i = Decimal(str(valor_reportado_ing)) - total_sistema_ing
+            voucher_i_ok = abs(diff_i) < Decimal('0.01')
+            if not voucher_i_ok: vouchers_match_ok = False
+            cols_i[2].metric("Diferencia", f"${diff_i:,.2f}", 
+                           delta=f"{'OK' if voucher_i_ok else 'FALLO'}", 
+                           delta_color="normal" if voucher_i_ok else "inverse")
+            
+            file_uploader_i = None
+            if regla_metodo.get('requiere_foto_voucher', False):
+                if url_foto_guardada_ing:
+                    st.markdown(f"✅ Foto Guardada (Socio): **[Ver Foto]({url_foto_guardada_ing})**", unsafe_allow_html=True)
+                else:
+                    file_uploader_i = st.file_uploader(f"Subir foto Voucher SOCIO ({socio_nombre}/{nombre_metodo})", type=["jpg", "jpeg", "png"], key=f"verif_file_{lookup_key}")
+            
+            widget_data[lookup_key] = { "file_widget": file_uploader_i, "url_guardada": url_foto_guardada_ing, "nombre_display": f"{socio_nombre}_{nombre_metodo}" }
+            json_verificacion_con_match.append({
+                "metodo": f"{nombre_metodo} (Socio: {socio_nombre})", "fuente": "Ingreso Adicional",
+                "requiere_foto": regla_metodo.get('requiere_foto_voucher', False),
+                "total_sistema": float(total_sistema_ing), "total_reportado": float(valor_reportado_ing),
+                "match_ok": voucher_i_ok, "url_foto": None, "lookup_key": lookup_key # Key interna para guardar/cargar
             })
             st.divider()
+
         submitted_verif = st.form_submit_button("Guardar Verificación de Pagos", type="primary")
 
     st.subheader("Sección 2: Registros Informativos (Sin Match Requerido)")
-    json_registros_informativos = [] 
-    with st.expander("Ver Pagos Huérfanos (Ventas sin regla) y Otros Ingresos"):
+    
+    with st.expander("Ver Pagos Huérfanos (Ventas sin regla) e Ingresos Informativos"):
+        
         st.markdown("**Pagos Huérfanos (Ventas)**")
         if not datos_verif['huerfanos']: st.caption("No hay pagos huérfanos.")
         for nombre_huerfano in datos_verif['huerfanos']:
@@ -783,40 +879,56 @@ def render_tab_verificacion():
                 json_registros_informativos.append({
                     "metodo": nombre_huerfano.title(), "fuente": "Ventas (Huérfano)", "total_sistema": float(total_h)
                 })
-        st.markdown("**Ingresos Adicionales (No-Efectivo)**")
-        ingresos_no_cash = False
-        for nombre_lower, total_ing in datos_verif['totales_ing_adic'].items():
-            if nombre_lower != 'efectivo' and total_ing > 0:
-                ingresos_no_cash = True
-                st.metric(label=f"{nombre_lower.title()} (Ingreso Adic.)", value=f"${total_ing:,.2f}")
-                json_registros_informativos.append({
-                    "metodo": nombre_lower.title(), "fuente": "Ingreso Adicional", "total_sistema": float(total_ing)
-                })
-        if not ingresos_no_cash: st.caption("No hay ingresos adicionales (no-efectivo).")
+
+        st.markdown("**Ingresos Adicionales (Informativos)**")
+        if not ingresos_informativos:
+             st.caption("No hay ingresos adicionales informativos.")
+        for ing in ingresos_informativos:
+            nombre_metodo = ing.get('metodo_pago', 'N/A')
+            socio_nombre = ing.get('socios', {}).get('nombre', 'N/A')
+            total_ing = Decimal(str(ing.get('monto', 0)))
+            st.metric(label=f"{nombre_metodo} (Socio: {socio_nombre})", value=f"${total_ing:,.2f}")
+            json_registros_informativos.append({
+                "metodo": nombre_metodo, "fuente": f"Ingreso Adicional ({socio_nombre})", "total_sistema": float(total_ing)
+            })
+
 
     if submitted_verif:
         with st.spinner("Guardando verificación y subiendo fotos (si las hay)..."):
             hubo_error_subida = False
-            for nombre_lower, data in widget_data.items():
+            
+            # Iteramos sobre los widgets de archivo que creamos dinámicamente
+            for lookup_key, data in widget_data.items():
                 archivo_subido = data["file_widget"]
                 if archivo_subido is not None:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=archivo_subido.name) as tmp_file:
                         tmp_file.write(archivo_subido.getvalue())
                         ruta_temporal = tmp_file.name
-                    st.write(f"Subiendo foto para {nombre_lower}...")
-                    url_publica, err_subida = database.subir_archivo_storage(cierre_id, nombre_lower, ruta_temporal)
+                    
+                    st.write(f"Subiendo foto para {data['nombre_display']}...")
+                    url_publica, err_subida = database.subir_archivo_storage(cierre_id, data['nombre_display'], ruta_temporal)
                     os.remove(ruta_temporal) 
                     if err_subida:
-                        st.error(f"FALLO AL SUBIR FOTO para {nombre_lower}: {err_subida}")
+                        st.error(f"FALLO AL SUBIR FOTO para {data['nombre_display']}: {err_subida}")
                         hubo_error_subida = True
                     else:
-                        st.success(f"Foto para {nombre_lower} subida con éxito.")
+                        st.success(f"Foto para {data['nombre_display']} subida con éxito.")
+                        # Actualizamos el JSON que vamos a guardar
                         for item in json_verificacion_con_match:
-                            if item['metodo'].lower() == nombre_lower: item['url_foto'] = url_publica
+                            if item.get('lookup_key') == lookup_key: # Si es un ingreso adic
+                                item['url_foto'] = url_publica
+                                break
+                            elif item['metodo'].lower() == lookup_key.replace("_ventas",""): # Si es una venta
+                                item['url_foto'] = url_publica
+                                break
+            
+            # Mantener URLs antiguas si no se subió un archivo nuevo
             for item in json_verificacion_con_match:
                 if item['url_foto'] is None: 
-                    url_guardada_previa = widget_data[item['metodo'].lower()].get('url_guardada')
+                    lookup_key = item.get('lookup_key') or f"{item['metodo'].lower()}_ventas"
+                    url_guardada_previa = widget_data[lookup_key].get('url_guardada')
                     if url_guardada_previa: item['url_foto'] = url_guardada_previa 
+
             if not hubo_error_subida:
                 final_data_json = {
                     "verificacion_con_match": json_verificacion_con_match,
@@ -862,11 +974,9 @@ def render_tab_verificacion():
                 st.session_state.pop('resumen_calculado', None) 
                 cargar_datos_verificacion.clear()
                 try:
-                    # Intentamos limpiar todos los caches de los otros módulos
                     cargar_gastos_registrados.clear()
                     cargar_ingresos_existentes.clear()
-                except NameError: 
-                    pass 
+                except NameError: pass 
                 st.rerun()
 
 # =============================================================================
