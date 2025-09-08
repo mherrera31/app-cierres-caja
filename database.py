@@ -602,23 +602,30 @@ def eliminar_compra_registro(compra_id):
 def get_registro_carga(fecha_operacion, sucursal_id):
     """
     Busca el registro de carga único para una fecha y sucursal específicas.
+    (Versión actualizada para manejar respuestas vacías sin usar maybe_single())
     """
     try:
         response = supabase.table('cierre_registros_carga') \
             .select('*') \
             .eq('fecha_operacion', fecha_operacion) \
             .eq('sucursal_id', sucursal_id) \
-            .maybe_single() \
-            .execute()
-        
-        # --- ¡NUEVA LÍNEA DE PROTECCIÓN! ---
-        # Si la respuesta completa (response) es Nula por un fallo de API o RLS:
+            .limit(1) \
+            .execute() # NOTA: Quitamos .maybe_single()
+
+        # Si la respuesta COMPLETA es Nula (fallo de red/API)
         if response is None:
-            return None, "Error de API: La respuesta de la base de datos fue Nula (None). Revisa permisos o conexión."
+            return None, "Error de API: La respuesta de la base de datos fue Nula (None)."
+
+        # Si la consulta funciona, response.data AHORA ES UNA LISTA.
+        # Si la lista NO está vacía, devolvemos el primer (y único) elemento.
+        if response.data:
+            return response.data[0], None  # Devuelve el dict del registro
         
-        # Si la respuesta es válida, devolvemos los datos (que pueden ser None si no se encontró nada)
-        return response.data, None
-        
+        # Si la lista ESTÁ vacía (el caso normal de "no hay registro hoy"),
+        # devolvemos datos Nulos y error Nulo, lo cual es correcto.
+        else:
+            return None, None 
+
     except Exception as e:
         return None, f"Error al buscar el registro de carga: {e}"
 
