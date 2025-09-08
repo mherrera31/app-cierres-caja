@@ -1,5 +1,5 @@
 # pages/6_Cierre_CDE.py
-# VERSIÓN 2 (Con flujo de "Abrir Cierre" y reporte de métodos No-CDE)
+# VERSIÓN 3 (Flujo de "Abrir Cierre" + UI de 2 Pestañas + Finalizar dentro de Tab)
 
 import streamlit as st
 import sys
@@ -15,7 +15,7 @@ project_root = os.path.abspath(os.path.join(script_dir, '..'))
 sys.path.append(project_root)
 # --- FIN DEL BLOQUE ---
 
-# --- GUARDIÁN DE SEGURIDAD (NUEVO ROL) ---
+# --- GUARDIÁN DE SEGURIDAD (ROL CDE / ADMIN) ---
 rol_usuario = st.session_state.get("perfil", {}).get("rol")
 if rol_usuario not in ['admin', 'cde']:
     st.error("Acceso denegado. 🚫 Esta sección es solo para roles CDE y Administradores.")
@@ -74,10 +74,16 @@ tz_panama = pytz.timezone('America/Panama')
 fecha_hoy_str = datetime.now(tz_panama).strftime('%Y-%m-%d')
 
 st.header(f"Verificación para: {sucursal_nombre_sel} | Fecha: {fecha_hoy_str}")
+
+# --- BOTÓN DE REFRESCO MANUAL (DEL PASO 79) ---
+if st.button("🔄 Refrescar Totales del Sistema (Pagos)", help="Haga clic aquí si han entrado nuevos pagos (Yappy, Tarjeta, etc.) después de que abrió esta página."):
+    cargar_totales_sistema.clear()
+    st.success("Totales del sistema refrescados.")
+    st.rerun()
+
 st.divider()
 
 # --- 2. CARGAR TOTALES DEL SISTEMA (DE LA TABLA PAGOS) ---
-# (Cargamos esto una vez, independientemente del estado del cierre)
 @st.cache_data(ttl=60) 
 def cargar_totales_sistema(fecha, sucursal_nombre):
     totales_metodos, total_efectivo, err = database.calcular_totales_pagos_dia_sucursal(fecha, sucursal_nombre)
@@ -88,7 +94,7 @@ def cargar_totales_sistema(fecha, sucursal_nombre):
 
 totales_sistema_metodos_dict, total_sistema_efectivo = cargar_totales_sistema(fecha_hoy_str, sucursal_nombre_sel)
 
-# --- 3. BUSCAR ESTADO DEL CIERRE CDE (NUEVO FLUJO) ---
+# --- 3. BUSCAR ESTADO DEL CIERRE CDE (FLUJO BOTÓN "ABRIR") ---
 cierre_cde_actual, err_busqueda = database.buscar_cierre_cde_existente_hoy(fecha_hoy_str, sucursal_id_actual)
 
 if err_busqueda:
@@ -102,7 +108,6 @@ if cierre_cde_actual and cierre_cde_actual.get('estado') == 'CERRADO':
     st.success(f"El Cierre CDE para hoy ya fue FINALIZADO.")
     if cierre_cde_actual.get('discrepancia'):
         st.warning("Este cierre fue forzado por un Admin y presenta discrepancia.")
-    # (Aquí puedes añadir un expander para mostrar los datos guardados si lo deseas)
     st.stop()
 
 # CASO 2: NO existe cierre. Mostrar botón para CREAR.
@@ -118,66 +123,52 @@ if not cierre_cde_actual:
             st.error(f"Error al crear cierre: {err_crear}")
         else:
             st.success("¡Cierre CDE creado! Recargando...")
-            cargar_totales_sistema.clear() # Limpiar caché de totales
+            cargar_totales_sistema.clear() 
             st.rerun()
-    st.stop() # Detener el script hasta que abran el cierre
+    st.stop() 
 
-# CASO 3: El cierre está ABIERTO (cierre_cde_actual existe). Continuamos con la app.
+# CASO 3: El cierre está ABIERTO. Continuamos.
 cierre_cde_id = cierre_cde_actual['id']
-    # --- AÑADIR ESTE BLOQUE NUEVO ---
-if st.button("🔄 Refrescar Totales del Sistema (Pagos)", help="Haga clic aquí si han entrado nuevos pagos (Yappy, Tarjeta, etc.) después de que abrió esta página."):
-    # Limpiamos el caché de la función que lee la tabla 'pagos'
-    cargar_totales_sistema.clear()
-    st.success("Totales del sistema refrescados.")
-    st.rerun()
-# --- FIN DEL BLOQUE NUEVO ---
 
-# --- 5. CARGAR MÉTODOS CDE (PARA EL FORMULARIO) ---
+# --- 5. CARGAR MÉTODOS CDE (DEPENDENCIAS DEL FORMULARIO) ---
 @st.cache_data(ttl=600)
 def cargar_metodos_cde_activos():
-    metodos, err = database.obtener_metodos_pago_cde() # Esta función ya excluye 'Efectivo'
+    metodos, err = database.obtener_metodos_pago_cde()
     if err:
         st.error(f"Error cargando métodos CDE: {err}")
         return []
     return metodos
 
-@st.cache_data(ttl=600)
-def cargar_metodos_NO_cde(totales_sistema_dict):
-    metodos_no_cde, err = database.obtener_metodos_pago_NO_cde(totales_sistema_dict)
-    if err:
-        st.error(f"Error cargando métodos NO-CDE: {err}")
-    return metodos_no_cde
-
 metodos_pago_cde_lista = cargar_metodos_cde_activos()
-metodos_informativos_lista = cargar_metodos_NO_cde(totales_sistema_metodos_dict)
 
-# Cargar conteos guardados previamente (si existen)
+# Cargar conteos guardados previamente
 conteo_efectivo_guardado = cierre_cde_actual.get('detalle_conteo_efectivo') or {}
 detalle_efectivo_guardado = conteo_efectivo_guardado.get('detalle', {})
 verificacion_metodos_guardado = cierre_cde_actual.get('verificacion_metodos') or {}
 
 
-# --- 6. INTERFAZ DE CONTEO Y VERIFICACIÓN ---
+# --- 6. INTERFAZ DE CONTEO Y VERIFICACIÓN (FORMULARIO PRINCIPAL) ---
 st.subheader("Formulario de Conteo y Verificación Manual")
 all_match_ok = True # Flag global de discrepancia
 
 with st.form(key="form_conteo_cde"):
 
-    tab_efectivo, tab_metodos_match, tab_metodos_info = st.tabs([
+    # AHORA SOLO 2 TABS: Efectivo y Verificación (que incluye Match y Huérfanos)
+    tab_efectivo, tab_verificacion = st.tabs([
         "💵 Conteo de Efectivo", 
-        "💳 Verificación CDE (Match)", 
-        "ℹ️ Métodos Informativos (No-CDE)"
+        "💳 Verificación y Reportes"
     ])
 
     with tab_efectivo:
         st.subheader("1. Conteo Físico de Efectivo")
-        # El total de sistema ahora lo leemos desde el cierre guardado (se capturó al ABRIR)
         total_efectivo_sistema_guardado = cierre_cde_actual.get('total_efectivo_sistema', 0.0)
         st.metric("Total Efectivo del Sistema (Capturado al Abrir)", f"${Decimal(total_efectivo_sistema_guardado):,.2f}")
         
         inputs_conteo = {}
         total_calculado_fisico = Decimal('0.00')
         
+        # (Generador de contadores de denominación)
+        st.markdown("**Monedas**")
         for den in DENOMINACIONES:
             if "Moneda" in den['nombre']:
                 col_lab, col_inp = st.columns([2, 1])
@@ -196,6 +187,7 @@ with st.form(key="form_conteo_cde"):
                 cantidad = col_inp.number_input(f"Input_{den['nombre']}", label_visibility="collapsed", min_value=0, step=1, value=cantidad_guardada, key=f"den_final_cde_{den['nombre']}")
                 inputs_conteo[den['nombre']] = {"cantidad": cantidad, "valor": den['valor']}
                 total_calculado_fisico += Decimal(str(cantidad)) * Decimal(str(den['valor']))
+        # (Fin del generador)
         
         st.divider()
         st.header(f"Total Contado Físico: ${total_calculado_fisico:,.2f}")
@@ -204,7 +196,7 @@ with st.form(key="form_conteo_cde"):
         diferencia_efectivo = total_calculado_fisico - Decimal(str(total_efectivo_sistema_guardado))
         cash_match_ok = abs(diferencia_efectivo) < Decimal('0.01')
         if not cash_match_ok:
-            all_match_ok = False # Marcamos discrepancia global
+            all_match_ok = False 
 
         st.metric(
             label="DIFERENCIA DE EFECTIVO (Físico vs. Sistema)",
@@ -214,19 +206,22 @@ with st.form(key="form_conteo_cde"):
         )
         
 
-    with tab_metodos_match:
+    with tab_verificacion:
+        
+        verificacion_json_output = {} # Para guardar todos los datos de esta pestaña
+        
+        # --- Sección 1: Verificación Métodos CDE (Match Requerido) ---
         st.subheader("2. Verificación Manual de Métodos CDE (Requerido para Match)")
         
-        verificacion_json_output = {} # Para guardar los inputs manuales
-        
         if not metodos_pago_cde_lista:
-            st.info("No hay métodos de pago configurados como 'is_cde = true' (excluyendo Efectivo).")
+            st.warning("No hay métodos de pago configurados como 'is_cde = true' (excluyendo Efectivo).", icon="⚠️")
             
+        nombres_cde_conocidos = set()
         for metodo in metodos_pago_cde_lista:
             nombre_metodo = metodo['nombre']
-            # Obtener el total del sistema que calculamos AL INICIO de la página
-            total_sistema = totales_sistema_metodos_dict.get(nombre_metodo, 0.0)
+            nombres_cde_conocidos.add(nombre_metodo) # Añadir a la lista de conocidos
             
+            total_sistema = totales_sistema_metodos_dict.get(nombre_metodo, 0.0)
             st.markdown(f"**Verificando: {nombre_metodo}**")
             valor_manual_guardado = verificacion_metodos_guardado.get(nombre_metodo, 0.0)
             
@@ -256,38 +251,16 @@ with st.form(key="form_conteo_cde"):
             verificacion_json_output[nombre_metodo] = valor_manual # Guardamos el input manual
             st.divider()
 
-    with tab_metodos_info:
-        st.subheader("3. Métodos Informativos (Control)")
-        st.caption("Estos métodos no requieren 'Match' y no bloquean el cierre.")
-        
-        # --- Sección 1: Métodos Conocidos (No-CDE) ---
-        st.markdown("**Métodos Conocidos (No-CDE) que recibieron pagos:**")
-        if not metodos_informativos_lista:
-            st.info("No se detectaron pagos en métodos conocidos No-CDE.")
-        else:
-            for metodo_info in metodos_informativos_lista:
-                nombre = metodo_info['nombre']
-                total = metodo_info['total']
-                st.metric(f"{nombre} (Sistema)", f"${Decimal(str(total)):,.2f}")
-                # Guardamos esto también en el JSON para el reporte
-                verificacion_json_output[f"INFO_{nombre}"] = float(total)
+        # --- Sección 2: Pagos Huérfanos (Como pediste) ---
+        st.subheader("3. Pagos Huérfanos (Métodos Desconocidos)")
+        st.caption("Pagos recibidos con un nombre de método que no está registrado en 'Metodos de Pago'. Solo informativo.")
 
-        st.divider()
-
-        # --- Sección 2: Pagos Huérfanos (Métodos Desconocidos) ---
-        st.markdown("**Pagos Huérfanos (Métodos Desconocidos):**")
-        
-        # Calcular Huérfanos:
-        # 1. Obtener nombres de todos los métodos que SÍ conocemos
-        nombres_cde_conocidos = {m['nombre'] for m in metodos_pago_cde_lista}
-        nombres_info_conocidos = {m['nombre'] for m in metodos_informativos_lista}
-        todos_los_nombres_conocidos = nombres_cde_conocidos.union(nombres_info_conocidos)
-        
-        # 2. Obtener nombres de todos los métodos que SÍ recibieron pagos
         todos_los_metodos_recibidos = set(totales_sistema_metodos_dict.keys())
-        
-        # 3. La diferencia son los huérfanos
-        nombres_huerfanos = todos_los_metodos_recibidos - todos_los_nombres_conocidos
+        # (Obtenemos los nombres de TODOS los métodos maestros para comparar)
+        metodos_maestros_todos, _ = database.obtener_metodos_pago() 
+        nombres_maestros_conocidos = {m['nombre'] for m in metodos_maestros_todos} if metodos_maestros_todos else set()
+
+        nombres_huerfanos = todos_los_metodos_recibidos - nombres_maestros_conocidos
         
         pagos_huerfanos_lista = []
         if nombres_huerfanos:
@@ -303,11 +276,45 @@ with st.form(key="form_conteo_cde"):
                 nombre_h = pago_h['nombre']
                 total_h = pago_h['total']
                 st.metric(f"{nombre_h} (Huérfano)", f"${Decimal(str(total_h)):,.2f}")
-                # Guardamos huérfanos en el JSON también
                 verificacion_json_output[f"HUERFANO_{nombre_h}"] = float(total_h)
 
-    
-    submitted = st.form_submit_button("Guardar Conteos", type="secondary")
+        st.divider()
+
+        # --- SECCIÓN DE FINALIZACIÓN (MOVIDA AQUÍ) ---
+        st.header("4. Finalización del Cierre CDE")
+
+        if all_match_ok:
+            st.info("Todo cuadrado. El cierre puede ser finalizado.")
+        else:
+            st.error("Existen discrepancias en Efectivo o en Métodos CDE. Revisa los conteos.")
+
+        # Botón de Finalizar (para todos, pero deshabilitado si hay discrepancia)
+        if st.button("FINALIZAR CIERRE CDE", type="primary", disabled=not all_match_ok, key="btn_finalizar"):
+            with st.spinner("Finalizando..."):
+                _, err_final = database.finalizar_cierre_cde(cierre_cde_id, con_discrepancia=False)
+            if err_final:
+                st.error(f"Error: {err_final}")
+            else:
+                st.success("¡Cierre CDE Finalizado con Éxito!")
+                st.balloons()
+                cargar_totales_sistema.clear()
+                st.rerun()
+
+        # Botón de Admin (solo visible para Admin, y solo si hay discrepancia)
+        if not all_match_ok and rol_usuario == 'admin':
+            st.warning("ADMIN: El cierre presenta un DESCUADRE. Puedes forzar la finalización.")
+            if st.button("Forzar Cierre con Discrepancia (Admin)", key="btn_forzar"):
+                with st.spinner("Forzando finalización..."):
+                    _, err_final = database.finalizar_cierre_cde(cierre_cde_id, con_discrepancia=True)
+                if err_final:
+                    st.error(f"Error: {err_final}")
+                else:
+                    st.success("¡Cierre CDE Finalizado (Forzado) con Éxito!")
+                    cargar_totales_sistema.clear()
+                    st.rerun()
+
+    # --- BOTÓN DE GUARDAR (FUERA DE LOS TABS, PERO DENTRO DEL FORM) ---
+    submitted = st.form_submit_button("Guardar Conteos (Sin Finalizar)", type="secondary")
 
     if submitted:
         # Preparar el JSON de conteo de efectivo
@@ -324,7 +331,7 @@ with st.form(key="form_conteo_cde"):
                 cierre_cde_id,
                 float(total_calculado_fisico),
                 datos_conteo_efectivo_dict,
-                verificacion_json_output # Esto ahora contiene los manuales CDE Y los informativos
+                verificacion_json_output 
             )
             
         if err_save:
@@ -334,35 +341,4 @@ with st.form(key="form_conteo_cde"):
             cargar_totales_sistema.clear()
             st.rerun()
 
-st.divider()
-
-# --- 7. LÓGICA DE FINALIZACIÓN ---
-st.header("Finalización del Cierre CDE")
-
-if all_match_ok:
-    st.info("Todo cuadrado. El cierre puede ser finalizado.")
-else:
-    st.error("Existen discrepancias en Efectivo o en Métodos CDE. Revisa los conteos.")
-
-if st.button("FINALIZAR CIERRE CDE", type="primary", disabled=not all_match_ok):
-    with st.spinner("Finalizando..."):
-        _, err_final = database.finalizar_cierre_cde(cierre_cde_id, con_discrepancia=False)
-    if err_final:
-        st.error(f"Error: {err_final}")
-    else:
-        st.success("¡Cierre CDE Finalizado con Éxito!")
-        st.balloons()
-        cargar_totales_sistema.clear()
-        st.rerun()
-
-if not all_match_ok and rol_usuario == 'admin':
-    st.warning("ADMIN: El cierre presenta un DESCUADRE. Puedes forzar la finalización.")
-    if st.button("Forzar Cierre con Discrepancia (Admin)"):
-        with st.spinner("Forzando finalización..."):
-            _, err_final = database.finalizar_cierre_cde(cierre_cde_id, con_discrepancia=True)
-        if err_final:
-            st.error(f"Error: {err_final}")
-        else:
-            st.success("¡Cierre CDE Finalizado (Forzado) con Éxito!")
-            cargar_totales_sistema.clear()
-            st.rerun()
+# (Las llamadas a los botones de Finalizar ya no están aquí, se movieron a la Tab 2)
