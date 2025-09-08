@@ -604,14 +604,21 @@ def get_registro_carga(fecha_operacion, sucursal_id):
     Busca el registro de carga único para una fecha y sucursal específicas.
     """
     try:
-        # DEBE DECIR 'cierre_registros_carga' (tal como en tu captura)
         response = supabase.table('cierre_registros_carga') \
             .select('*') \
             .eq('fecha_operacion', fecha_operacion) \
             .eq('sucursal_id', sucursal_id) \
             .maybe_single() \
             .execute()
+        
+        # --- ¡NUEVA LÍNEA DE PROTECCIÓN! ---
+        # Si la respuesta completa (response) es Nula por un fallo de API o RLS:
+        if response is None:
+            return None, "Error de API: La respuesta de la base de datos fue Nula (None). Revisa permisos o conexión."
+        
+        # Si la respuesta es válida, devolvemos los datos (que pueden ser None si no se encontró nada)
         return response.data, None
+        
     except Exception as e:
         return None, f"Error al buscar el registro de carga: {e}"
 
@@ -629,11 +636,14 @@ def upsert_registro_carga(fecha_operacion, sucursal_id, usuario_id, datos_carga)
             "carga_sin_retirar": datos_carga['carga_sin_retirar']
         }
         
-        # DEBE DECIR 'cierre_registros_carga' (tal como en tu captura)
         response = supabase.table('cierre_registros_carga') \
             .upsert(registro, on_conflict="unique_fecha_sucursal") \
             .execute()
         
+        # --- ¡NUEVA LÍNEA DE PROTECCIÓN! ---
+        if response is None:
+             return None, "Error de API al guardar: La respuesta de la base de datos fue Nula (None)."
+
         return response.data, None
     except Exception as e:
         return None, f"Error al guardar (upsert) el registro de carga: {e}"
