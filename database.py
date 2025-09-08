@@ -596,3 +596,46 @@ def eliminar_compra_registro(compra_id):
         return response.data, None
     except Exception as e:
         return None, f"Error al eliminar el registro de compra: {e}"
+
+# --- FUNCIONES DE REGISTRO DE CARGA (MÓDULO SEPARADO) ---
+
+def get_registro_carga(fecha_operacion, sucursal_id):
+    """
+    Busca el registro de carga único para una fecha y sucursal específicas.
+    """
+    try:
+        response = supabase.table('registros_carga') \
+            .select('*') \
+            .eq('fecha_operacion', fecha_operacion) \
+            .eq('sucursal_id', sucursal_id) \
+            .maybe_single() \
+            .execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al buscar el registro de carga: {e}"
+
+def upsert_registro_carga(fecha_operacion, sucursal_id, usuario_id, datos_carga):
+    """
+    Crea un nuevo registro de carga o ACTUALIZA uno existente si ya existe
+    uno para esa fecha y sucursal (basado en el CONSTRAINT 'unique_fecha_sucursal').
+    
+    datos_carga (dict): debe contener carga_facturada, carga_retirada, carga_sin_retirar.
+    """
+    try:
+        registro = {
+            "fecha_operacion": fecha_operacion,
+            "sucursal_id": sucursal_id,
+            "usuario_id": usuario_id, # Siempre actualiza al último usuario que guardó
+            "carga_facturada": datos_carga['carga_facturada'],
+            "carga_retirada": datos_carga['carga_retirada'],
+            "carga_sin_retirar": datos_carga['carga_sin_retirar']
+        }
+        
+        # Upsert usa el constraint "unique_fecha_sucursal" que definimos en el SQL.
+        response = supabase.table('registros_carga') \
+            .upsert(registro, on_conflict="unique_fecha_sucursal") \
+            .execute()
+        
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al guardar (upsert) el registro de carga: {e}"
