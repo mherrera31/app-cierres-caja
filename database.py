@@ -604,7 +604,7 @@ def get_registro_carga(fecha_operacion, sucursal_id):
     Busca el registro de carga único para una fecha y sucursal específicas.
     """
     try:
-        # CORRECCIÓN: Apuntar a "cierre_registros_carga"
+        # DEBE DECIR 'cierre_registros_carga' (tal como en tu captura)
         response = supabase.table('cierre_registros_carga') \
             .select('*') \
             .eq('fecha_operacion', fecha_operacion) \
@@ -629,7 +629,7 @@ def upsert_registro_carga(fecha_operacion, sucursal_id, usuario_id, datos_carga)
             "carga_sin_retirar": datos_carga['carga_sin_retirar']
         }
         
-        # CORRECCIÓN: Apuntar a "cierre_registros_carga"
+        # DEBE DECIR 'cierre_registros_carga' (tal como en tu captura)
         response = supabase.table('cierre_registros_carga') \
             .upsert(registro, on_conflict="unique_fecha_sucursal") \
             .execute()
