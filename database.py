@@ -678,6 +678,10 @@ def get_registros_carga_rango(sucursal_id, fecha_inicio, fecha_fin):
 
 # --- INICIO DE FUNCIONES DEL MÓDULO CIERRE CDE ---
 
+# database.py (AÑADIR ESTE BLOQUE COMPLETO AL FINAL DEL ARCHIVO)
+
+# --- INICIO DE FUNCIONES DEL MÓDULO CIERRE CDE ---
+
 def obtener_sucursales_cde():
     """
     Obtiene solo las sucursales que están marcadas como CDE (terminan en 'CDE').
