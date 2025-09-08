@@ -477,3 +477,76 @@ def admin_eliminar_socio(socio_id):
         if "23503" in str(e): # Error de Foreign Key
              return None, "Error: No se puede eliminar. Este socio tiene registros históricos (ingresos) asociados."
         return None, f"Error al eliminar el socio: {e}"
+
+# database.py (AÑADIR ESTAS 4 FUNCIONES NUEVAS)
+
+def get_categoria_id_por_nombre(nombre_categoria):
+    """
+    Busca el ID de una categoría de gasto específica por su nombre exacto.
+    """
+    try:
+        response = supabase.table('gastos_categorias') \
+            .select('id') \
+            .eq('nombre', nombre_categoria) \
+            .eq('is_activo', True) \
+            .limit(1) \
+            .maybe_single() \
+            .execute()
+        
+        if response.data:
+            return response.data['id'], None
+        else:
+            return None, f"No se encontró la categoría activa '{nombre_categoria}'. Por favor, créala en el módulo 'Gestionar Categorías'."
+    except Exception as e:
+        return None, f"Error buscando categoría: {e}"
+
+def registrar_delivery_completo(cierre_id, usuario_id, sucursal_id, monto_cobrado, costo_repartidor, origen_nombre, notas, gasto_asociado_id):
+    """
+    Registra la entrada completa en la tabla 'cierre_delivery' para el reporte de ganancias.
+    """
+    try:
+        datos = {
+            "cierre_id": cierre_id,
+            "usuario_id": usuario_id,
+            "sucursal_id": sucursal_id,
+            "monto_cobrado": monto_cobrado,
+            "costo_repartidor": costo_repartidor,
+            "origen_nombre": origen_nombre,
+            "notas": notas,
+            "gasto_asociado_id": gasto_asociado_id  # Será NULL si el costo fue 0
+        }
+        response = supabase.table('cierre_delivery').insert(datos).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al registrar en cierre_delivery: {e}"
+
+def obtener_deliveries_del_cierre(cierre_id):
+    """
+    Obtiene todos los registros de 'cierre_delivery' para un cierre_id (para el reporte de ganancias).
+    """
+    try:
+        response = supabase.table('cierre_delivery') \
+            .select('*') \
+            .eq('cierre_id', cierre_id) \
+            .order('created_at') \
+            .execute()
+        return response.data, None
+    except Exception as e:
+        return [], f"Error al obtener los registros de delivery: {e}"
+
+def eliminar_delivery_completo(delivery_id, gasto_asociado_id):
+    """
+    Elimina el registro de la tabla 'cierre_delivery' Y TAMBIÉN elimina 
+    el gasto correspondiente de 'gastos_caja' (si existe) para mantener la sincronía.
+    """
+    try:
+        # 1. Eliminar el registro de reporte de delivery
+        supabase.table('cierre_delivery').delete().eq('id', delivery_id).execute()
+        
+        # 2. Si tenía un gasto asociado (costo > 0), eliminarlo también.
+        if gasto_asociado_id:
+            supabase.table('gastos_caja').delete().eq('id', gasto_asociado_id).execute()
+            
+        return True, None
+    except Exception as e:
+        return None, f"Error al eliminar el registro completo de delivery: {e}"
