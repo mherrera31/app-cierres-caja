@@ -407,6 +407,192 @@ def render_tab_ingresos_adic():
         else:
             st.info("No se detectaron cambios para guardar.")
 
+# pages/3_Cierre_de_Caja.py (AÑADIR ESTAS DOS FUNCIONES)
+
+# --- INICIO BLOQUE DELIVERY ---
+@st.cache_data(ttl=15) 
+def cargar_deliveries_registrados(cierre_id):
+    """ Carga el log de la tabla 'cierre_delivery' para el reporte de ganancias """
+    delivery_data, err = database.obtener_deliveries_del_cierre(cierre_id)
+    if err:
+        st.error(f"Error cargando registros de delivery: {err}")
+        return pd.DataFrame(), 0.0, 0.0
+
+    if not delivery_data:
+        # Columnas para el reporte de ganancias
+        return pd.DataFrame(columns=["Origen", "Cobrado", "Costo", "Ganancia", "Notas", "ID", "Gasto_ID"]), 0.0, 0.0
+
+    df_data = []
+    total_costo_delivery = 0.0
+    total_cobrado_delivery = 0.0
+    
+    for item in delivery_data:
+        cobrado = float(item.get('monto_cobrado', 0))
+        costo = float(item.get('costo_repartidor', 0))
+        ganancia = cobrado - costo
+        
+        total_cobrado_delivery += cobrado
+        total_costo_delivery += costo
+        
+        df_data.append({
+            "Origen": item.get('origen_nombre', 'N/A'),
+            "Cobrado": cobrado,
+            "Costo": costo,
+            "Ganancia": ganancia,
+            "Notas": item.get('notas', ''),
+            "ID": item['id'],
+            "Gasto_ID": item.get('gasto_asociado_id') # ID del gasto vinculado
+        })
+    
+    df = pd.DataFrame(df_data)
+    return df, total_cobrado_delivery, total_costo_delivery
+
+@st.cache_data(ttl=600)
+def cargar_dependencias_delivery():
+    """ Carga los Socios y el ID de la Categoría "Repartidores" """
+    # 1. Cargar Socios para el dropdown de Origen
+    socios_data, err_s = database.obtener_socios() # Usamos la función original de socios
+    if err_s:
+        st.error(f"Error cargando socios: {err_s}")
+    
+    opciones_origen = ["PSC (Venta Local)"] + [s['nombre'] for s in socios_data] if socios_data else ["PSC (Venta Local)"]
+
+    # 2. Cargar el ID de la categoría "Repartidores"
+    repartidor_cat_id, err_cat = database.get_categoria_id_por_nombre("Repartidores")
+    if err_cat or not repartidor_cat_id:
+        st.error(f"ERROR CRÍTICO: {err_cat}")
+        st.warning("Asegúrese de crear una categoría de gasto llamada 'Repartidores' en el módulo 'Gestionar Categorías'.")
+        st.stop()
+        
+    return opciones_origen, repartidor_cat_id
+
+def render_tab_delivery():
+    # Cargar datos de la sesión y dependencias
+    cierre_actual = st.session_state.get('cierre_actual_objeto')
+    cierre_id = cierre_actual['id']
+    usuario_id = st.session_state['perfil']['id']
+    sucursal_id = cierre_actual['sucursal_id']
+    # Esta variable la guardamos cuando seleccionamos sucursal (línea 1025)
+    sucursal_nombre = st.session_state.get('cierre_sucursal_seleccionada_nombre', 'N/A')
+
+    opciones_origen, repartidor_cat_id = cargar_dependencias_delivery()
+    
+    if not repartidor_cat_id:
+        st.error("Detenido: No se encontró la categoría de gasto 'Repartidores'.")
+        st.stop()
+
+    st.subheader("Registrar Nuevo Delivery")
+    st.info("Cada registro aquí genera un reporte de ganancia. Si el 'Costo Repartidor' es mayor a $0, se creará automáticamente un GASTO en efectivo en el 'Paso 2: Gastos' bajo la categoría 'Repartidores'.")
+
+    with st.form(key="form_nuevo_delivery", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        monto_cobrado = col1.number_input("Monto Cobrado al Cliente (Informativo)", min_value=0.0, step=0.01, format="%.2f")
+        costo_repartidor = col2.number_input("Costo del Repartidor (Gasto de Efectivo)", min_value=0.0, step=0.01, format="%.2f")
+        
+        origen_sel = st.selectbox("Origen del Pedido:", options=opciones_origen)
+        notas_delivery = st.text_input("Notas (Opcional, ej: ID Pedido, Cliente)")
+        
+        submit_delivery = st.form_submit_button("Añadir Registro de Delivery", type="primary")
+
+    if submit_delivery:
+        with st.spinner("Registrando delivery y gasto asociado..."):
+            gasto_generado_id = None
+            
+            # ACCIÓN 1: Si hay costo, registrar el Gasto primero.
+            if costo_repartidor > 0:
+                nota_gasto = f"Delivery (Origen: {origen_sel}) - {notas_delivery}"
+                gasto_data, err_gasto = database.registrar_gasto(
+                    cierre_id=cierre_id, 
+                    categoria_id=repartidor_cat_id, 
+                    monto=costo_repartidor, 
+                    notas=nota_gasto,
+                    usuario_id=usuario_id, 
+                    sucursal_id=sucursal_id, 
+                    sucursal_nombre=sucursal_nombre
+                )
+                if err_gasto:
+                    st.error(f"Error al crear el Gasto asociado: {err_gasto}")
+                    st.stop()
+                gasto_generado_id = gasto_data[0]['id'] # Guardamos el ID del gasto creado
+            
+            # ACCIÓN 2: Registrar el log de Delivery (para el reporte de ganancias)
+            _, err_delivery = database.registrar_delivery_completo(
+                cierre_id, usuario_id, sucursal_id,
+                monto_cobrado, costo_repartidor, origen_sel, notas_delivery,
+                gasto_generado_id # Pasamos el ID del gasto (o None si el costo fue 0)
+            )
+                
+        if err_delivery:
+            st.error(f"Error al registrar el reporte de delivery: {err_delivery}")
+            # (Aquí faltaría lógica para borrar el gasto si el reporte falla, pero es complejo)
+        else:
+            st.success("Delivery añadido con éxito.")
+            cargar_deliveries_registrados.clear() 
+            cargar_gastos_registrados.clear() # Limpiar caché de gastos también
+            st.session_state.pop('resumen_calculado', None) # Invalidar caché del resumen
+            st.rerun()
+
+    # --- Mostrar la tabla de reporte de ganancias ---
+    st.divider()
+    st.subheader("Reporte de Ganancias: Deliveries del Día")
+    df_deliveries, total_cobrado, total_costo = cargar_deliveries_registrados(cierre_id)
+    
+    if df_deliveries.empty:
+        st.info("Aún no se han registrado deliveries en este cierre.")
+    else:
+        df_deliveries["Eliminar"] = False 
+        df_original = df_deliveries.copy()
+        
+        column_config_del = {
+            "ID": None, 
+            "Gasto_ID": None,
+            "Origen": st.column_config.TextColumn("Origen", disabled=True),
+            "Cobrado": st.column_config.NumberColumn("Cobrado", format="$ %.2f", disabled=True),
+            "Costo": st.column_config.NumberColumn("Costo (Gasto)", format="$ %.2f", disabled=True),
+            "Ganancia": st.column_config.NumberColumn("Ganancia Neta", format="$ %.2f", disabled=True),
+            "Notas": st.column_config.TextColumn("Notas", disabled=True),
+            "Eliminar": st.column_config.CheckboxColumn("Eliminar", default=False, help="Elimina este registro Y el gasto en efectivo asociado de la pestaña 'Gastos'.")
+        }
+
+        edited_df_del = st.data_editor(
+            df_deliveries, column_config=column_config_del,
+            width='stretch', hide_index=True, key="editor_deliveries"
+        )
+
+        try:
+            fila_eliminada = (edited_df_del["Eliminar"] == True) & (df_original["Eliminar"] == False)
+            if fila_eliminada.any():
+                fila_data = edited_df_del.loc[fila_eliminada].iloc[0]
+                del_id = fila_data["ID"]
+                gasto_asociado_id = fila_data["Gasto_ID"] # ID del gasto a borrar
+                del_costo = fila_data["Costo"]
+                
+                st.error(f"¿Seguro que deseas eliminar este registro Y el gasto asociado de ${del_costo:,.2f}?")
+                if st.button("Confirmar Eliminación (Sincronizada)"):
+                    with st.spinner("Eliminando registro y gasto..."):
+                        _, err_del = database.eliminar_delivery_completo(del_id, gasto_asociado_id)
+                    if err_del:
+                        st.error(f"Error al eliminar: {err_del}")
+                    else:
+                        st.success("Registro y gasto asociado eliminados.")
+                        cargar_deliveries_registrados.clear()
+                        cargar_gastos_registrados.clear()
+                        st.session_state.pop('resumen_calculado', None) 
+                        st.rerun()
+        except Exception as e:
+            st.error(f"Ocurrió un error procesando la eliminación: {e}")
+
+    # --- Resumen de Ganancia (Reporte) ---
+    st.metric("Total Cobrado (Informativo)", f"${total_cobrado:,.2f}")
+    st.metric("Total Pagado a Repartidores (Gasto)", f"${total_costo:,.2f}")
+    ganancia_neta = total_cobrado - total_costo
+    st.metric(
+        "GANANCIA NETA DE DELIVERY", 
+        f"${ganancia_neta:,.2f}",
+        delta=f"{ganancia_neta:,.2f}",
+        delta_color="normal" if ganancia_neta >= 0 else "inverse"
+    )
+# --- FIN BLOQUE DELIVERY ---
 
 # --- Módulo: tab_resumen ---
 def _ejecutar_calculo_resumen(cierre_id, cierre_actual_obj):
@@ -1043,18 +1229,20 @@ if st.session_state.get('cierre_actual_objeto'):
     st.markdown("---")
     st.header(f"Estás trabajando en: {sucursal_seleccionada_nombre}")
     
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab_del, tab4, tab5, tab6 = st.tabs([
         "PASO 1: Caja Inicial", 
         "PASO 2: Gastos", 
-        "PASO 3: Ingresos Adic.", 
-        "PASO 4: Resumen", 
-        "PASO 5: Caja Final", 
-        "PASO 6: Verificación y Finalizar" 
+        "PASO 3: Ingresos Adic.",
+        "PASO 4: Delivery",  # <-- NUEVO TAB
+        "PASO 5: Resumen",          # <-- Renumerado
+        "PASO 6: Caja Final",       # <-- Renumerado
+        "PASO 7: Verificación y Finalizar" # <-- Renumerado
     ])
-
+    
     with tab1: render_tab_inicial()
     with tab2: render_tab_gastos()
     with tab3: render_tab_ingresos_adic()
+    with tab_del: render_tab_delivery()
     with tab4: render_tab_resumen()
     with tab5: render_tab_caja_final()
     with tab6: render_tab_verificacion()
