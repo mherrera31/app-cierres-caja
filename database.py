@@ -698,9 +698,10 @@ def buscar_cierre_cde_existente_hoy(fecha_str, sucursal_id):
     except Exception as e:
         return None, f"Error al buscar cierre CDE existente: {e}"
 
+
 def crear_nuevo_cierre_cde(fecha_str, sucursal_id, usuario_id):
     """
-    (Función NUEVA del Paso 73 - Flujo Botón "Abrir")
+    (Versión CORREGIDA - Flujo Botón "Abrir")
     Esta función SÓLO CREA un nuevo cierre CDE.
     """
     try:
@@ -721,12 +722,17 @@ def crear_nuevo_cierre_cde(fecha_str, sucursal_id, usuario_id):
             "estado": "ABIERTO",
             "total_efectivo_sistema": total_efectivo
         }
-        response_nuevo = supabase.table('cierres_cde').insert(datos_nuevo).select('*').single().execute()
+        
+        # --- ESTA ES LA LÍNEA CORREGIDA ---
+        # El .insert() se ejecuta directamente y devuelve los datos insertados.
+        response_nuevo = supabase.table('cierres_cde').insert(datos_nuevo).execute()
+        # --- FIN DE LA CORRECCIÓN ---
         
         if response_nuevo is None:
             return None, "Error API: Respuesta Nula al CREAR cierre CDE"
-            
-        return response_nuevo.data, None
+        
+        # Insert devuelve una LISTA de registros, queremos el primero (y único).
+        return response_nuevo.data[0], None
 
     except Exception as e:
         return None, f"Error al crear nuevo cierre CDE: {e}"
