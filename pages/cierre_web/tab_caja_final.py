@@ -76,16 +76,16 @@ def render_tab_caja_final():
     st.info(f"Total Teórico (calculado en Paso 4): ${saldo_teorico:,.2f}")
     st.markdown("Ingrese el conteo físico de todo el efectivo en caja para calcular la diferencia.")
     
-    # --- CORRECCIÓN DE BUG (AttributeError - Línea 89) ---
     datos_saldo_final_guardado = cierre_actual.get('saldo_final_detalle') or {}
     detalle_guardado = datos_saldo_final_guardado.get('detalle', {})
-    # --- FIN DE LA CORRECCIÓN ---
 
     with st.form(key="form_conteo_final"):
         
         inputs_conteo = {}
         total_calculado_fisico = Decimal('0.00')
 
+        # --- ORDEN CORREGIDO Y FORMATO DE LISTA ---
+        
         st.markdown("**Monedas**")
         for den in DENOMINACIONES:
             if "Moneda" in den['nombre']:
@@ -119,6 +119,8 @@ def render_tab_caja_final():
                 )
                 inputs_conteo[den['nombre']] = {"cantidad": cantidad, "valor": den['valor']}
                 total_calculado_fisico += Decimal(str(cantidad)) * Decimal(str(den['valor']))
+        
+        # --- FIN DE CAMBIOS DE FORMATO ---
         
         st.divider()
         st.header(f"Total Contado Físico: ${total_calculado_fisico:,.2f}")
@@ -185,7 +187,6 @@ def render_tab_caja_final():
     with col_res1:
         with st.container(border=True):
             st.subheader("Monto a Depositar")
-            # --- CORRECCIÓN DE ADVERTENCIA (Label Vacío) ---
             st.metric(label="Monto Total a Depositar:", value=f"${float(total_deposito_guardado or 0):,.2f}", label_visibility="collapsed") 
 
     with col_res2:
