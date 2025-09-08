@@ -94,9 +94,9 @@ with st.form(key="form_carga"):
     
     col1, col2, col3 = st.columns(3)
     
-    # Usamos los valores cargados (o 0.0) como 'value'
-    input_facturada = col1.number_input("1. Carga Facturada ($):", min_value=0.0, value=val_facturada, step=0.01, format="%.2f")
-    input_retirada = col2.number_input("2. Carga Retirada ($):", min_value=0.0, value=val_retirada, step=0.01, format="%.2f")
+    # ORDEN CORREGIDO:
+    input_retirada = col1.number_input("1. Carga Retirada ($):", min_value=0.0, value=val_retirada, step=0.01, format="%.2f")
+    input_facturada = col2.number_input("2. Carga Facturada ($):", min_value=0.0, value=val_facturada, step=0.01, format="%.2f")
     input_sin_retirar = col3.number_input("3. Carga Sin Retirar ($):", min_value=0.0, value=val_sin_retirar, step=0.01, format="%.2f")
     
     submit_carga = st.form_submit_button("Guardar Registro del Día", type="primary")
