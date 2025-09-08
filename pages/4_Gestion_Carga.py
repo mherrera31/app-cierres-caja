@@ -216,7 +216,7 @@ if st.button("Buscar Historial"):
             
             # Calcular totales del rango
             total_ganancia_rango = total_facturado_rango - total_retirado_rango
-            total_ganancia_actual_rango = total_ganancia_rango - total_sin_retirar
+            total_ganancia_actual_rango = total_ganancia_rango - total_sin_retirar_rango
 
             st.subheader("Totales del Rango Seleccionado")
             col_t1, col_t2 = st.columns(2)
