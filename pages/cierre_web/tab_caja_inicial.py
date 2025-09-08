@@ -20,6 +20,11 @@ DENOMINACIONES = [
 ]
 
 def render_tab_inicial():
+    """
+    Renderiza el contenido de la pestaña "Caja Inicial", permitiendo la EDICIÓN
+    del conteo inicial que ya está cargado en la sesión.
+    """
+
     cierre_actual = st.session_state.get('cierre_actual_objeto')
     if not cierre_actual:
         st.error("Error: No hay ningún cierre cargado en la sesión.")
@@ -39,6 +44,8 @@ def render_tab_inicial():
         inputs_conteo = {}
         total_calculado = Decimal('0.00')
 
+        # --- ORDEN CORREGIDO Y FORMATO DE LISTA ---
+        
         st.markdown("**Monedas**")
         for den in DENOMINACIONES:
             if "Moneda" in den['nombre']:
@@ -72,6 +79,8 @@ def render_tab_inicial():
                 )
                 inputs_conteo[den['nombre']] = {"cantidad": cantidad, "valor": den['valor']}
                 total_calculado += Decimal(str(cantidad)) * Decimal(str(den['valor']))
+
+        # --- FIN DE CAMBIOS DE FORMATO ---
         
         st.divider()
         st.header(f"Total Contado Inicial: ${total_calculado:,.2f}")
