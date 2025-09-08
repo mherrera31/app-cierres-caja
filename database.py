@@ -1,4 +1,4 @@
-# database.py - Módulo de Conexión a Base de Datos
+# database.py - Módulo de Conexión a Base de Datos (VERSIÓN CONSOLIDADA Y CORREGIDA)
 
 import os
 from dotenv import load_dotenv
@@ -6,6 +6,7 @@ from supabase import create_client, Client
 import pytz
 from datetime import datetime, timedelta
 import json
+from decimal import Decimal # Importar Decimal para los cálculos
 
 load_dotenv()
 supabase_url = os.environ.get("SUPABASE_URL")
@@ -137,7 +138,7 @@ def registrar_gasto(cierre_id, categoria_id, monto, notas, usuario_id, sucursal_
             "cierre_id": cierre_id, "categoria_id": categoria_id, "monto": monto,
             "notas": notas, "usuario_id": usuario_id, "sucursal_id": sucursal_id, "sucursal": sucursal_nombre
         }
-        response = supabase.table('gastos_caja').insert(datos).execute()
+        response = supabase.table('gastos_caja').insert(datos).select('*').execute() # Añadido select('*') para devolver el objeto
         return response.data, None
     except Exception as e:
         return None, f"Error al registrar el gasto: {e}"
@@ -179,11 +180,9 @@ def obtener_pagos_del_cierre(cierre_id):
     except Exception as e:
         return [], f"Error al obtener los pagos: {e}"
 
-# Nueva función para obtener métodos de pago y sus flags
 def obtener_metodos_pago_con_flags():
     try:
-        # --- CORRECCIÓN --- Se añade 'is_activo' al select
-        response = supabase.table('metodos_pago').select('id, nombre, requiere_conteo, requiere_foto_voucher, is_activo').order('nombre').execute()
+        response = supabase.table('metodos_pago').select('id, nombre, requiere_conteo, requiere_foto_voucher, is_activo, is_cde').order('nombre').execute()
         return response.data, None
     except Exception as e:
         return [], f"Error al obtener los métodos de pago con flags: {e}"
@@ -203,7 +202,6 @@ def guardar_conteo_final(cierre_id, datos_conteo_final, total_a_depositar, saldo
     except Exception as e:
         return None, f"Error al guardar el conteo final: {e}"
 
-# Nueva función para guardar la verificación de pagos
 def guardar_verificacion_pagos(cierre_id, datos_verificacion):
     try:
         datos = {"verificacion_pagos_detalle": datos_verificacion}
@@ -222,7 +220,7 @@ def obtener_metodos_pago():
 
 def obtener_socios():
     try:
-        # Seleccionamos las nuevas columnas de reglas
+        # (Sin filtro 'is_activo' según solicitud del usuario)
         response = supabase.table('socios').select('id, nombre, afecta_conteo_efectivo, requiere_verificacion_voucher').order('nombre').execute()
         return response.data, None
     except Exception as e:
@@ -249,7 +247,6 @@ def actualizar_ingreso_adicional(cierre_id, socio_id, monto, metodo_pago):
 
 def obtener_ingresos_adicionales_del_cierre(cierre_id):
     try:
-        # Ahora hacemos un JOIN a socios para traernos sus reglas
         response = supabase.table('ingresos_adicionales').select('*, socios(nombre, afecta_conteo_efectivo, requiere_verificacion_voucher)').eq('cierre_id', cierre_id).order('created_at').execute()
         return response.data, None
     except Exception as e:
@@ -266,47 +263,27 @@ def guardar_saldo_siguiente(cierre_id, saldo_siguiente_detalle):
     except Exception as e:
         return None, f"Error al guardar el saldo para el día siguiente: {e}"
 
-# --- NUEVA FUNCIÓN AÑADIDA ---
-# NUEVA FUNCIÓN PARA SUBIR ARCHIVOS A STORAGE
 def subir_archivo_storage(cierre_id, metodo_pago_nombre, ruta_archivo_local):
-    """
-    Sube un archivo a Supabase Storage y devuelve la URL pública.
-    """
-    
-    # --- CAMBIA ESTO: Pon el nombre real de tu "Bucket" de Supabase Storage ---
     BUCKET_NAME = "cierre-comprobantes" 
-    # -------------------------------------------------------------------
-
     try:
-        # Extraer la extensión del archivo (ej: .jpg, .png)
         extension = os.path.splitext(ruta_archivo_local)[1]
-        
-        # Crear un nombre de archivo único para evitar colisiones
         timestamp = int(datetime.now().timestamp())
         nombre_archivo_storage = f"{cierre_id}/{metodo_pago_nombre.replace(' ', '_')}_{timestamp}{extension}"
 
-        # Leer el archivo local en modo binario
         with open(ruta_archivo_local, 'rb') as f:
             datos_archivo = f.read()
 
-        # Subir el archivo al bucket de Storage
         response = supabase.storage.from_(BUCKET_NAME).upload(
             path=nombre_archivo_storage,
             file=datos_archivo
         )
-        
-        # Obtener la URL pública del archivo que acabamos de subir
         url_publica_response = supabase.storage.from_(BUCKET_NAME).get_public_url(nombre_archivo_storage)
-        
         return url_publica_response, None
 
     except Exception as e:
         return None, f"Error al subir archivo a Storage: {e}"
     
 def finalizar_cierre_en_db(cierre_id):
-    """
-    Marca el cierre especificado como 'CERRADO' en la base de datos.
-    """
     try:
         datos = {"estado": "CERRADO", "fecha_hora_cierre_real": datetime.now(pytz.timezone('America/Panama')).isoformat()}
         response = supabase.table('cierres_caja').update(datos).eq('id', cierre_id).execute()
@@ -317,10 +294,6 @@ def finalizar_cierre_en_db(cierre_id):
 # --- FUNCIONES DE ADMINISTRACIÓN PARA CATEGORÍAS DE GASTOS ---
 
 def admin_get_todas_categorias():
-    """
-    Obtiene todas las categorías de gastos, incluyendo activas e inactivas.
-    Ordena por activas primero, luego alfabéticamente.
-    """
     try:
         response = supabase.table('gastos_categorias').select('id, nombre, is_activo') \
             .order('is_activo', desc=True) \
@@ -331,79 +304,58 @@ def admin_get_todas_categorias():
         return [], f"Error al obtener todas las categorías: {e}"
 
 def admin_crear_categoria(nombre_categoria):
-    """
-    Crea una nueva categoría de gasto. Por defecto, se crea como activa.
-    """
     if not nombre_categoria:
         return None, "El nombre no puede estar vacío."
-        
     try:
         datos = {"nombre": nombre_categoria, "is_activo": True}
         response = supabase.table('gastos_categorias').insert(datos).execute()
         return response.data, None
     except Exception as e:
-        # Manejar error de duplicado (si el nombre ya existe y tienes una restricción UNIQUE)
-        if "23505" in str(e): # Error de violación de restricción única
+        if "23505" in str(e): 
             return None, f"La categoría '{nombre_categoria}' ya existe."
         return None, f"Error al crear la categoría: {e}"
 
 def admin_desactivar_categoria(categoria_id):
-    """
-    Desactiva una categoría de gasto (marcado lógico).
-    No la borra para mantener la integridad de los gastos históricos.
-    """
     try:
         datos = {"is_activo": False}
         response = supabase.table('gastos_categorias').update(datos).eq('id', categoria_id).execute()
         return response.data, None
     except Exception as e:
         return None, f"Error al desactivar la categoría: {e}"
-    
+
+def admin_activar_categoria(categoria_id):
+    try:
+        datos = {"is_activo": True}
+        response = supabase.table('gastos_categorias').update(datos).eq('id', categoria_id).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al activar la categoría: {e}"
+
 # --- FUNCIONES DE ADMINISTRACIÓN PARA REPORTES DE CIERRES ---
 
 def admin_get_lista_usuarios():
-    """
-    Obtiene una lista simple de todos los usuarios (perfiles) para los filtros del reporte.
-    """
     try:
-        # Asumimos que la tabla 'perfiles' tiene 'id' y 'nombre'
         response = supabase.table('perfiles').select('id, nombre').order('nombre').execute()
         return response.data, None
     except Exception as e:
         return [], f"Error al obtener lista de usuarios: {e}"
 
 def admin_buscar_cierres_filtrados(fecha_inicio, fecha_fin, sucursal_id=None, usuario_id=None, solo_discrepancia=False):
-    """
-    Busca y filtra todos los cierres de caja segun los parámetros del admin.
-    Esta función une tablas para obtener los nombres del perfil (usuario) y la sucursal.
-    """
     try:
-        # Empezamos la consulta seleccionando todo de cierres_caja y pidiendo las columnas relacionadas
-        # de perfiles (el nombre) y sucursales (el nombre de la sucursal).
         query = supabase.table('cierres_caja').select(
             '*, perfiles(nombre), sucursales(sucursal)'
         )
-
-        # 1. Filtro de Fecha (Ahora Opcional)
         if fecha_inicio:
             query = query.gte('fecha_operacion', fecha_inicio)
         if fecha_fin:
             query = query.lte('fecha_operacion', fecha_fin)
-            
-        # 2. Filtro de Sucursal (Opcional)
         if sucursal_id:
             query = query.eq('sucursal_id', sucursal_id)
-
-        # 3. Filtro de Usuario (Opcional)
         if usuario_id:
             query = query.eq('usuario_id', usuario_id)
-
-        # 4. Filtro de Discrepancia (Opcional) (Req. 31)
         if solo_discrepancia:
-            # Basado en la columna que definimos en iniciar_cierre_en_db
             query = query.eq('discrepancia_saldo_inicial', True)
 
-        # Ordenar por fecha descendente y ejecutar
         response = query.order('fecha_operacion', desc=True).execute()
         return response.data, None
 
@@ -411,21 +363,19 @@ def admin_buscar_cierres_filtrados(fecha_inicio, fecha_fin, sucursal_id=None, us
         return [], f"Error al buscar cierres filtrados: {e}"
 
 def eliminar_gasto_caja(gasto_id):
-    """
-    Elimina permanentemente un registro de gasto usando su ID.
-    """
     try:
         response = supabase.table('gastos_caja').delete().eq('id', gasto_id).execute()
         return response.data, None
     except Exception as e:
         return None, f"Error al eliminar el gasto: {e}"
 
-# database.py (AÑADIR ESTO AL FINAL)
+
+# --- INICIO BLOQUE: NUEVAS FUNCIONES DE MÓDULOS ---
 
 # --- FUNCIONES DE ADMINISTRACIÓN PARA SOCIOS (CON HARD DELETE) ---
 
 def admin_get_todos_socios():
-    """ Obtiene todos los socios para el editor de admin """
+    """ Obtiene todos los socios para el editor de admin (sin is_activo) """
     try:
         response = supabase.table('socios') \
             .select('id, nombre, afecta_conteo_efectivo, requiere_verificacion_voucher') \
@@ -468,7 +418,6 @@ def admin_actualizar_socio_reglas(socio_id, data_dict):
 def admin_eliminar_socio(socio_id):
     """
     ELIMINA PERMANENTEMENTE un socio de la base de datos (HARD DELETE).
-    Esto fallará si el socio tiene registros asociados (ej: en ingresos_adicionales).
     """
     try:
         response = supabase.table('socios').delete().eq('id', socio_id).execute()
@@ -478,7 +427,8 @@ def admin_eliminar_socio(socio_id):
              return None, "Error: No se puede eliminar. Este socio tiene registros históricos (ingresos) asociados."
         return None, f"Error al eliminar el socio: {e}"
 
-# database.py (AÑADIR ESTAS 4 FUNCIONES NUEVAS)
+
+# --- FUNCIONES DE GESTIÓN DE DELIVERY (CON DOBLE ESCRITURA) ---
 
 def get_categoria_id_por_nombre(nombre_categoria):
     """
@@ -540,16 +490,13 @@ def eliminar_delivery_completo(delivery_id, gasto_asociado_id):
     el gasto correspondiente de 'gastos_caja' (si existe) para mantener la sincronía.
     """
     try:
-        # 1. Eliminar el registro de reporte de delivery
         supabase.table('cierre_delivery').delete().eq('id', delivery_id).execute()
-        
-        # 2. Si tenía un gasto asociado (costo > 0), eliminarlo también.
         if gasto_asociado_id:
             supabase.table('gastos_caja').delete().eq('id', gasto_asociado_id).execute()
-            
         return True, None
     except Exception as e:
         return None, f"Error al eliminar el registro completo de delivery: {e}"
+
 
 # --- FUNCIONES DE REGISTRO DE COMPRAS (INFORMATIVO) ---
 
@@ -589,7 +536,6 @@ def obtener_compras_del_cierre(cierre_id):
 def eliminar_compra_registro(compra_id):
     """
     Elimina permanentemente un registro de compra. 
-    (No necesita sincronización ya que no toca gastos_caja).
     """
     try:
         response = supabase.table('cierre_compras').delete().eq('id', compra_id).execute()
@@ -597,12 +543,13 @@ def eliminar_compra_registro(compra_id):
     except Exception as e:
         return None, f"Error al eliminar el registro de compra: {e}"
 
+
 # --- FUNCIONES DE REGISTRO DE CARGA (MÓDULO SEPARADO) ---
 
 def get_registro_carga(fecha_operacion, sucursal_id):
     """
-    Busca el registro de carga único para una fecha y sucursal específicas.
-    (Versión actualizada para manejar respuestas vacías sin usar maybe_single())
+    Busca el registro de carga único.
+    (Versión actualizada del Paso 77 - Maneja respuesta vacía sin .maybe_single())
     """
     try:
         response = supabase.table('cierre_registros_carga') \
@@ -610,46 +557,37 @@ def get_registro_carga(fecha_operacion, sucursal_id):
             .eq('fecha_operacion', fecha_operacion) \
             .eq('sucursal_id', sucursal_id) \
             .limit(1) \
-            .execute() # NOTA: Quitamos .maybe_single()
+            .execute() 
 
-        # Si la respuesta COMPLETA es Nula (fallo de red/API)
         if response is None:
             return None, "Error de API: La respuesta de la base de datos fue Nula (None)."
 
-        # Si la consulta funciona, response.data AHORA ES UNA LISTA.
-        # Si la lista NO está vacía, devolvemos el primer (y único) elemento.
         if response.data:
             return response.data[0], None  # Devuelve el dict del registro
-        
-        # Si la lista ESTÁ vacía (el caso normal de "no hay registro hoy"),
-        # devolvemos datos Nulos y error Nulo, lo cual es correcto.
         else:
-            return None, None 
+            return None, None # (Correcto: No hay registro, no hay error)
 
     except Exception as e:
         return None, f"Error al buscar el registro de carga: {e}"
 
 def upsert_registro_carga(fecha_operacion, sucursal_id, usuario_id, datos_carga):
     """
-    Crea un nuevo registro de carga o ACTUALIZA uno existente (Upsert).
+    Crea o Actualiza un registro de carga.
+    (Versión actualizada del Paso 53 - usa nombres de columna en on_conflict)
     """
     try:
         registro = {
             "fecha_operacion": fecha_operacion,
             "sucursal_id": sucursal_id,
-            "usuario_id": usuario_id,
+            "usuario_id": usuario_id, 
             "carga_facturada": datos_carga['carga_facturada'],
             "carga_retirada": datos_carga['carga_retirada'],
             "carga_sin_retirar": datos_carga['carga_sin_retirar']
         }
         
-        # --- ESTA ES LA LÍNEA CORREGIDA ---
-        # En lugar de usar el NOMBRE del constraint ("unique_fecha_sucursal"),
-        # usamos los NOMBRES DE LAS COLUMNAS que tienen el constraint.
         response = supabase.table('cierre_registros_carga') \
             .upsert(registro, on_conflict="fecha_operacion, sucursal_id") \
             .execute()
-        # --- FIN DE LA CORRECCIÓN ---
         
         if response is None:
              return None, "Error de API al guardar: La respuesta de la base de datos fue Nula (None)."
@@ -658,60 +596,13 @@ def upsert_registro_carga(fecha_operacion, sucursal_id, usuario_id, datos_carga)
     except Exception as e:
         return None, f"Error al guardar (upsert) el registro de carga: {e}"
 
-def get_registros_carga_rango(sucursal_id, fecha_inicio, fecha_fin):
-    """
-    Obtiene todos los registros de carga para una sucursal específica
-    DENTRO de un rango de fechas.
-    """
-    try:
-        query = supabase.table('cierre_registros_carga') \
-            .select('*, sucursales(sucursal), perfiles(nombre)') \
-            .eq('sucursal_id', sucursal_id) \
-            .gte('fecha_operacion', fecha_inicio) \
-            .lte('fecha_operacion', fecha_fin) \
-            .order('fecha_operacion', desc=True)
-        
-        response = query.execute()
-        return response.data, None
-    except Exception as e:
-        return None, f"Error al buscar registros por rango: {e}"
 
-def buscar_cierre_cde_existente_hoy(fecha_str, sucursal_id):
-    """
-    (Función CORREGIDA - Flujo Botón "Abrir")
-    Esta función SÓLO BUSCA un cierre. Maneja manualmente la respuesta vacía.
-    """
-    try:
-        response = supabase.table('cierres_cde') \
-            .select('*') \
-            .eq('fecha_operacion', fecha_str) \
-            .eq('sucursal_id', sucursal_id) \
-            .limit(1) \
-            .execute() # NOTA: Quitamos .maybe_single()
-
-        # Si la respuesta COMPLETA es Nula (fallo de red/API)
-        if response is None:
-            return None, "Error de API: La respuesta de la base de datos fue Nula (None)."
-
-        # Si la consulta funciona, response.data AHORA ES UNA LISTA.
-        # Si la lista NO está vacía, devolvemos el primer (y único) elemento.
-        if response.data:
-            return response.data[0], None  # Devuelve el dict del registro existente
-        
-        # Si la lista ESTÁ vacía (CASO NORMAL: no hay cierre hoy),
-        # devolvemos datos Nulos y error Nulo. ESTO ES CORRECTO.
-        else:
-            return None, None 
-
-    except Exception as e:
-        return None, f"Error al buscar cierre CDE existente: {e}"
-        
-# --- INICIO BLOQUE COMPLETO DE FUNCIONES CIERRE CDE (CONSOLIDADO) ---
+# --- BLOQUE COMPLETO DE FUNCIONES CIERRE CDE (CONSOLIDADO Y CORREGIDO) ---
 
 def obtener_sucursales_cde():
     """
-    (Función requerida por 6_Cierre_CDE.py)
     Obtiene solo las sucursales que están marcadas como CDE (terminan en 'CDE').
+    (Parcheado con verificación 'is None')
     """
     try:
         response = supabase.table('sucursales').select('id, sucursal').like('sucursal', '%CDE').execute()
@@ -723,8 +614,8 @@ def obtener_sucursales_cde():
 
 def obtener_metodos_pago_cde():
     """
-    (Función requerida por 6_Cierre_CDE.py)
     Obtiene solo los métodos de pago marcados con is_cde = true.
+    (Parcheado con verificación 'is None')
     """
     try:
         response = supabase.table('metodos_pago') \
@@ -741,9 +632,8 @@ def obtener_metodos_pago_cde():
 
 def calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre):
     """
-    (Función requerida por 6_Cierre_CDE.py)
-    Calcula la suma de todos los pagos (de la tabla 'pagos') para una sucursal 
-    y fecha específicas, agrupados por método de pago.
+    Calcula la suma de todos los pagos (de la tabla 'pagos') agrupados por método.
+    (Parcheado con verificación 'is None')
     """
     try:
         tz_panama = pytz.timezone('America/Panama')
@@ -786,21 +676,24 @@ def calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre):
 
 def buscar_cierre_cde_existente_hoy(fecha_str, sucursal_id):
     """
-    (Función NUEVA del Paso 73 - Flujo Botón "Abrir")
-    Esta función SÓLO BUSCA un cierre (abierto o cerrado). NUNCA CREA.
+    (Versión CORREGIDA del Paso 77 - Flujo Botón "Abrir")
+    Maneja respuesta vacía sin .maybe_single().
     """
     try:
         response = supabase.table('cierres_cde') \
             .select('*') \
             .eq('fecha_operacion', fecha_str) \
             .eq('sucursal_id', sucursal_id) \
-            .maybe_single() \
-            .execute()
-        
+            .limit(1) \
+            .execute() 
+
         if response is None:
-            return None, "Error API: Respuesta Nula al buscar cierre existente CDE"
-        
-        return response.data, None
+            return None, "Error de API: La respuesta de la base de datos fue Nula (None)."
+
+        if response.data:
+            return response.data[0], None  # Devuelve el dict del registro existente
+        else:
+            return None, None # (Correcto: No hay registro, no hay error)
 
     except Exception as e:
         return None, f"Error al buscar cierre CDE existente: {e}"
@@ -811,11 +704,11 @@ def crear_nuevo_cierre_cde(fecha_str, sucursal_id, usuario_id):
     Esta función SÓLO CREA un nuevo cierre CDE.
     """
     try:
-        suc_data = supabase.table('sucursales').select('sucursal').eq('id', sucursal_id).single().execute()
-        if not suc_data or not suc_data.data:
-            return None, "No se encontró el nombre de la sucursal."
+        suc_data_resp = supabase.table('sucursales').select('sucursal').eq('id', sucursal_id).single().execute()
+        if not suc_data_resp or not suc_data_resp.data:
+             return None, "No se encontró el nombre de la sucursal."
             
-        sucursal_nombre = suc_data.data['sucursal']
+        sucursal_nombre = suc_data_resp.data['sucursal']
         
         totales_metodos_dict, total_efectivo, err_calc = calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre)
         if err_calc:
@@ -902,30 +795,3 @@ def finalizar_cierre_cde(cierre_cde_id, con_discrepancia=False):
         return None, f"Error al finalizar cierre CDE: {e}"
 
 # --- FIN BLOQUE COMPLETO CIERRE CDE ---
-
-def admin_buscar_cierres_cde_filtrados(fecha_inicio, fecha_fin, sucursal_id=None, usuario_id=None):
-    """
-    Busca y filtra todos los cierres de CDE (solo el módulo de verificación).
-    """
-    try:
-        query = supabase.table('cierres_cde').select(
-            '*, perfiles(nombre), sucursales(sucursal)'
-        )
-
-        if fecha_inicio:
-            query = query.gte('fecha_operacion', fecha_inicio)
-        if fecha_fin:
-            query = query.lte('fecha_operacion', fecha_fin)
-            
-        if sucursal_id:
-            query = query.eq('sucursal_id', sucursal_id)
-
-        if usuario_id:
-            query = query.eq('usuario_id', usuario_id)
-
-        response = query.order('fecha_operacion', desc=True).execute()
-        return response.data, None
-
-    except Exception as e:
-        return [], f"Error al buscar cierres CDE filtrados: {e}"
-
