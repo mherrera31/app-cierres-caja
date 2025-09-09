@@ -7,7 +7,7 @@ import os
 import database
 import pandas as pd
 from datetime import datetime
-from decimal import Decimal # Importar Decimal para el reporte CDE
+from decimal import Decimal
 
 # --- BLOQUE DE CORRECCIÓN DE IMPORTPATH (VITAL) ---
 script_dir = os.path.dirname(__file__)
@@ -33,19 +33,23 @@ st.title("Panel de Reportes Administrativos")
 # --- FUNCIONES DE CACHÉ PARA CARGAR DATOS DE FILTROS ---
 @st.cache_data(ttl=600) 
 def cargar_filtros_data_operativo():
-    sucursales_data, _ = database.obtener_sucursales() # Todas las sucursales
+    sucursales_data, _ = database.obtener_sucursales()
     usuarios_data, _ = database.admin_get_lista_usuarios()
     return sucursales_data, usuarios_data
 
 @st.cache_data(ttl=600) 
 def cargar_filtros_data_cde():
-    sucursales_data, _ = database.obtener_sucursales_cde() # Solo sucursales CDE
+    sucursales_data, _ = database.obtener_sucursales_cde()
     usuarios_data, _ = database.admin_get_lista_usuarios()
     return sucursales_data, usuarios_data
 
 
 # --- PESTAÑAS PRINCIPALES DEL MÓDULO DE REPORTES ---
-tab_op, tab_cde = st.tabs(["📊 Reportes Operativos (Caja)", "🏦 Reportes CDE (Verificación)"])
+tab_op, tab_cde, tab_agg = st.tabs([
+    "📊 Reportes de Cierres (Log)", 
+    "🏦 Reportes CDE (Log)",
+    "📈 Reportes Agregados (Suma)" # <-- NUEVA PESTAÑA
+])
 
 
 # ==========================================================
@@ -360,3 +364,78 @@ with tab_cde:
                         cierre.get('verificacion_metodos'),
                         {} 
                     )
+# ==========================================================
+# PESTAÑA 3: REPORTES AGREGADOS (SUMARIZADOS) - NUEVO
+# ==========================================================
+with tab_agg:
+    st.header("Reportes Agregados por Rango de Fechas")
+    st.info("Estos reportes suman los totales de Gastos e Ingresos de Socios para los filtros que selecciones.")
+
+    # --- Filtros (Comunes para ambos reportes agregados) ---
+    sucursales_db_agg, _ = cargar_filtros_data_operativo() # Usamos todas las sucursales
+    opciones_sucursal_agg = {"TODAS": None}
+    for s in sucursales_db_agg: opciones_sucursal_agg[s['sucursal']] = s['id'] 
+    
+    col_f1_agg, col_f2_agg, col_f3_agg = st.columns(3)
+    fecha_ini_agg = col_f1_agg.date_input("Fecha Desde", value=None, key="agg_fecha_ini")
+    fecha_fin_agg = col_f2_agg.date_input("Fecha Hasta", value=None, key="agg_fecha_fin")
+    sel_sucursal_nombre_agg = col_f3_agg.selectbox("Filtrar por Sucursal (Opcional)", options=opciones_sucursal_agg.keys(), key="agg_sucursal")
+    
+    sucursal_id_filtrar_agg = opciones_sucursal_agg[sel_sucursal_nombre_agg]
+
+    if st.button("Generar Reportes Agregados", type="primary"):
+        if not fecha_ini_agg or not fecha_fin_agg:
+            st.error("Debes seleccionar una fecha de INICIO y FIN.")
+        elif fecha_ini_agg > fecha_fin_agg:
+            st.error("La fecha de INICIO no puede ser posterior a la de FIN.")
+        else:
+            str_ini_agg = fecha_ini_agg.strftime("%Y-%m-%d")
+            str_fin_agg = fecha_fin_agg.strftime("%Y-%m-%d")
+            
+            # --- Ejecutar y mostrar reporte de GASTOS ---
+            with st.spinner("Generando reporte de gastos por categoría..."):
+                gastos_data, err_g = database.admin_reporte_gastos_agregados(str_ini_agg, str_fin_agg, sucursal_id_filtrar_agg)
+            
+            st.subheader("Gastos Totales por Categoría")
+            if err_g:
+                st.error(f"Error: {err_g}")
+            elif not gastos_data:
+                st.warning("No se encontraron gastos para este rango de fechas/sucursal.")
+            else:
+                df_gastos = pd.DataFrame(gastos_data)
+                df_gastos['total_gastado'] = df_gastos['total_gastado'].astype(float)
+                
+                st.dataframe(df_gastos.style.format({"total_gastado": "${:,.2f}"}), width='stretch')
+                
+                # Gráfico
+                st.bar_chart(df_gastos, x='categoria_nombre', y='total_gastado')
+                
+                total_general_gastos = df_gastos['total_gastado'].sum()
+                st.metric("Total General Gastado en el Periodo", f"${total_general_gastos:,.2f}")
+
+            st.divider()
+
+            # --- Ejecutar y mostrar reporte de INGRESOS POR SOCIO ---
+            with st.spinner("Generando reporte de ingresos por socio..."):
+                ingresos_data, err_i = database.admin_reporte_ingresos_socios(str_ini_agg, str_fin_agg, sucursal_id_filtrar_agg)
+            
+            st.subheader("Ingresos Totales por Socio y Método")
+            if err_i:
+                st.error(f"Error: {err_i}")
+            elif not ingresos_data:
+                st.warning("No se encontraron ingresos de socios para este rango de fechas/sucursal.")
+            else:
+                df_ingresos = pd.DataFrame(ingresos_data)
+                df_ingresos['total_ingresado'] = df_ingresos['total_ingresado'].astype(float)
+                
+                # Usamos una tabla pivote para una mejor visualización
+                try:
+                    df_pivot = df_ingresos.pivot_table(index='socio_nombre', columns='metodo_pago', values='total_ingresado', aggfunc='sum', fill_value=0)
+                    df_pivot['TOTAL SOCIO'] = df_pivot.sum(axis=1)
+                    st.dataframe(df_pivot.style.format("${:,.2f}"), width='stretch')
+                except Exception as e:
+                    st.write("Vista de tabla simple:")
+                    st.dataframe(df_ingresos.style.format({"total_ingresado": "${:,.2f}"}), width='stretch')
+
+                total_general_ingresos = df_ingresos['total_ingresado'].sum()
+                st.metric("Total General Ingresado por Socios en el Periodo", f"${total_general_ingresos:,.2f}")
