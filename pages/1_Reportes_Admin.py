@@ -73,6 +73,16 @@ with tab_op:
             
         st.metric(label=f"TOTAL CONTADO ({titulo})", value=f"${float(total):,.2f}")
 
+    def comando_revisar_abierto(cierre_objeto, nombre_sucursal):
+        """
+        Guarda el objeto del cierre seleccionado en la sesión y 
+        prepara al admin para "saltar" a ese cierre en la otra página.
+        """
+        st.session_state['admin_review_cierre_obj'] = cierre_objeto
+        st.session_state['admin_review_sucursal_nombre'] = nombre_sucursal
+        st.success(f"Modo Revisión (Admin) activado para: {nombre_sucursal}. Por favor, navega a la página 'Cierre de Caja' desde la barra lateral.")
+        st.warning("La página de Cierre de Caja se cargará automáticamente con esta sesión abierta.")
+
     def op_mostrar_reporte_verificacion(data_dict):
         st.subheader("Reporte de Verificación de Pagos")
         if not data_dict or (not data_dict.get('verificacion_con_match') and not data_dict.get('registros_informativos')):
@@ -190,7 +200,7 @@ with tab_op:
                     tab_resumen, tab_inicial, tab_final, tab_verif, tab_gastos = st.tabs([
                         "Resumen", "Caja Inicial", "Caja Final", "Verificación", "Gastos"
                     ])
-                    with tab_resumen:
+                   with tab_resumen:
                         st.subheader("Resumen del Cierre")
                         if cierre.get('estado') == 'CERRADO':
                             st.button(
@@ -198,6 +208,17 @@ with tab_op:
                                 on_click=comando_reabrir_operativo, args=(cierre['id'],),
                                 type="secondary"
                             )
+                        # --- INICIO DEL NUEVO BLOQUE ---
+                        elif cierre.get('estado') == 'ABIERTO':
+                            st.warning("Este cierre aún está ABIERTO.")
+                            st.button(
+                                "Entrar a Revisar/Editar este Cierre (Admin)", key=f"revisar_{cierre['id']}",
+                                on_click=comando_revisar_abierto, 
+                                args=(cierre, suc_nombre,), # Pasamos el objeto cierre COMPLETO
+                                type="primary"
+                            )
+                        # --- FIN DEL NUEVO BLOQUE ---
+                       
                         st.markdown(f"**Discrepancia Inicial Detectada:** {'Sí' if cierre['discrepancia_saldo_inicial'] else 'No'}")
                         col_r1, col_r2, col_r3, col_r4 = st.columns(4)
                         col_r1.metric("Saldo Inicial (Contado)", f"${float(cierre.get('saldo_inicial_efectivo') or 0):,.2f}")
