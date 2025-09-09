@@ -2,7 +2,10 @@
 # VERSIÓN CONSOLIDADA Y CORREGIDA (Arregla IndentationError y Deprecation Warnings)
 
 import streamlit as st
-import sys, os, database, pandas as pd
+import sys
+import os
+import database
+import pandas as pd
 from datetime import datetime
 from decimal import Decimal
 
@@ -10,8 +13,12 @@ from decimal import Decimal
 script_dir = os.path.dirname(__file__)
 project_root = os.path.abspath(os.path.join(script_dir, '..'))
 sys.path.append(project_root)
-if not st.session_state.get("autenticado") or st.session_state.get("perfil", {}).get("rol") != 'admin':
-    st.error("Acceso denegado.")
+
+if not st.session_state.get("autenticado"):
+    st.error("Acceso denegado...")
+    st.stop() 
+if st.session_state.get("perfil", {}).get("rol") != 'admin':
+    st.error("Acceso denegado...")
     st.stop()
 # ------------------------------------
 
@@ -21,23 +28,17 @@ st.title("Panel de Reportes Administrativos")
 # --- (Funciones de Caché para Filtros - sin cambios) ---
 @st.cache_data(ttl=600) 
 def cargar_filtros_data_operativo():
-    sucursales, _ = database.obtener_sucursales()
-    usuarios, _ = database.admin_get_lista_usuarios()
-    return sucursales, usuarios
-@st.cache_data(ttl=600) 
-def cargar_filtros_data_cde():
-    sucursales, _ = database.obtener_sucursales_cde()
-    usuarios, _ = database.admin_get_lista_usuarios()
-    return sucursales, usuarios
-@st.cache_data(ttl=600)
-def cargar_data_filtros_avanzados():
-    categorias, _ = database.admin_get_todas_categorias()
-    socios, _ = database.admin_get_todos_socios()
-    metodos, _ = database.obtener_metodos_pago()
-    return categorias, socios, metodos
+    sucursales_data, _ = database.obtener_sucursales()
+    usuarios_data, _ = database.admin_get_lista_usuarios()
+    metodos_pago, _ = database.obtener_metodos_pago()
+    return sucursales_data, usuarios_data, metodos_pago
 
 # --- PESTAÑAS PRINCIPALES ---
-tab_op, tab_cde, tab_agg = st.tabs(["📊 Cierres (Log)", "🏦 CDE (Log)", "📈 Agregados (Suma)"])
+tab_log_op, tab_log_cde, tab_analisis = st.tabs([
+    "📊 Cierres Operativos (Log)", 
+    "🏦 Cierres CDE (Log)",
+    "📈 Análisis de Ingresos" # <-- NUEVA PESTAÑA
+])
 
 # ==========================================================
 # PESTAÑA 1: REPORTE OPERATIVO (Tu reporte original)
