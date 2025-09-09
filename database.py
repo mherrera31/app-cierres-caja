@@ -839,10 +839,10 @@ def admin_buscar_cierres_cde_filtrados(fecha_inicio, fecha_fin, sucursal_id=None
 
 # --- FUNCIONES DE REPORTES AGREGADOS (Versión Final - Lee desde JSON) ---
 
-def admin_reporte_ingresos_json(fecha_inicio=None, fecha_fin=None, sucursal_id=None, usuario_id=None, metodo_pago=None):
+def admin_reporte_ingresos_json(fecha_inicio=None, fecha_fin=None, sucursal_id=None, usuario_id=None, metodo_pago=None, socio_id=None):
     """
-    Llama a la función SQL 'reporte_ingresos_desde_json' para obtener los ingresos
-    directamente desde el JSON 'verificacion_pagos_detalle' de los cierres.
+    (Versión Actualizada) Llama a la función SQL 'reporte_ingresos_desde_json' 
+    con el nuevo filtro de socio.
     """
     try:
         params = {
@@ -850,7 +850,8 @@ def admin_reporte_ingresos_json(fecha_inicio=None, fecha_fin=None, sucursal_id=N
             'fecha_fin': fecha_fin,
             'p_sucursal_id': sucursal_id,
             'p_usuario_id': usuario_id,
-            'p_metodo_pago': metodo_pago
+            'p_metodo_pago': metodo_pago,
+            'p_socio_id': socio_id # <-- NUEVO
         }
         params = {k: v for k, v in params.items() if v is not None}
             
