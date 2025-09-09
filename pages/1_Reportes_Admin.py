@@ -350,7 +350,8 @@ with tab_analisis:
     st.info("Este reporte extrae los totales de ingresos del resumen guardado en cada cierre (`verificacion_pagos_detalle`).")
 
     # --- Carga de datos para filtros de esta pestaña ---
-    sucursales_db_agg, usuarios_db_agg, metodos_db_agg = cargar_filtros_data_operativo()
+    sucursales_db_agg, usuarios_db_agg = cargar_filtros_data_basicos()
+    _, _, metodos_db_agg = cargar_data_filtros_avanzados() # Usamos la otra función para obtener los métodos
     
     st.subheader("Filtros (Todos opcionales)")
     
