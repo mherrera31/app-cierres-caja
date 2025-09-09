@@ -1311,6 +1311,28 @@ if sucursal_seleccionada_nombre == "--- Seleccione una Sucursal ---":
 sucursal_id_actual = opciones_sucursal[sucursal_seleccionada_nombre]
 usuario_id_actual = st.session_state['perfil']['id']
 
+# --- INICIO DEL NUEVO CARGADOR DE REVISIÓN ADMIN ---
+
+if 'admin_review_cierre_obj' in st.session_state and st.session_state.admin_review_cierre_obj is not None:
+    
+    # Si un admin saltó desde el reporte, cargamos ese cierre en la sesión
+    cierre_para_revisar = st.session_state.pop('admin_review_cierre_obj') # Usamos .pop() para que se cargue solo una vez
+    nombre_sucursal_revisar = st.session_state.pop('admin_review_sucursal_nombre')
+    
+    # Forzamos la sesión a cargar este cierre
+    st.session_state['cierre_actual_objeto'] = cierre_para_revisar
+    # Forzamos el selectbox a coincidir con la sucursal del cierre que estamos revisando
+    st.session_state['cierre_sucursal_seleccionada_nombre'] = nombre_sucursal_revisar
+    
+    usuario_del_cierre = cierre_para_revisar.get('perfiles', {}).get('nombre', 'N/A') if cierre_para_revisar.get('perfiles') else 'Usuario Desconocido'
+    st.warning(f"ADMIN: Estás en modo REVISIÓN/EDICIÓN para el cierre abierto de: **{usuario_del_cierre}** en **{nombre_sucursal_revisar}**.")
+    
+    # Limpiamos el caché del dropdown y re-ejecutamos la página
+    cargar_sucursales_data.clear()
+    st.rerun()
+
+# --- FIN DEL NUEVO CARGADOR ---
+
 if st.session_state.get('cierre_actual_objeto') is None:
     st.markdown("---")
     st.subheader("2. Estado del Cierre del Día")
