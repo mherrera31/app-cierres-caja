@@ -2,64 +2,36 @@
 # VERSIÓN CONSOLIDADA Y CORREGIDA (Arregla IndentationError y Deprecation Warnings)
 
 import streamlit as st
-import sys
-import os
-import database
-import pandas as pd
+import sys, os, database, pandas as pd
 from datetime import datetime
-from decimal import Decimal
 
-# --- BLOQUE DE CORRECCIÓN DE IMPORTPATH (VITAL) ---
+# --- (Bloque de ImportPath y Guardián de Seguridad - sin cambios) ---
 script_dir = os.path.dirname(__file__)
 project_root = os.path.abspath(os.path.join(script_dir, '..'))
 sys.path.append(project_root)
-# --- FIN DEL BLOQUE ---
-
-# --- GUARDIÁN DE SEGURIDAD (ADMIN) ---
-if not st.session_state.get("autenticado"):
-    st.error("Acceso denegado. 🚫 Por favor, inicie sesión desde la página principal.")
-    st.stop() 
-
-if st.session_state.get("perfil", {}).get("rol") != 'admin':
-    st.error("Acceso denegado. Esta sección es solo para administradores. 🔒")
+if not st.session_state.get("autenticado") or st.session_state.get("perfil", {}).get("rol") != 'admin':
+    st.error("Acceso denegado.")
     st.stop()
 # ------------------------------------
 
-
-# --- Configuración de la Página ---
 st.set_page_config(page_title="Reportes de Cierre", layout="wide")
 st.title("Panel de Reportes Administrativos")
 
-# --- FUNCIONES DE CACHÉ PARA CARGAR DATOS DE FILTROS ---
+# --- (Funciones de Caché para Filtros - sin cambios) ---
 @st.cache_data(ttl=600) 
 def cargar_filtros_data_basicos():
-    """ Carga solo sucursales y usuarios para los reportes de Log. """
-    sucursales_data, _ = database.obtener_sucursales()
-    usuarios_data, _ = database.admin_get_lista_usuarios()
-    return sucursales_data, usuarios_data
-
-@st.cache_data(ttl=600) 
-def cargar_filtros_data_cde():
-    """ Carga solo sucursales CDE y usuarios. """
-    sucursales_data, _ = database.obtener_sucursales_cde()
-    usuarios_data, _ = database.admin_get_lista_usuarios()
-    return sucursales_data, usuarios_data
-
-@st.cache_data(ttl=600)
-def cargar_data_filtros_avanzados():
-    """ Carga datos maestros para los filtros de reportes agregados. """
-    categorias, _ = database.admin_get_todas_categorias()
-    socios, _ = database.admin_get_todos_socios()
+    sucursales, _ = database.obtener_sucursales()
+    usuarios, _ = database.admin_get_lista_usuarios()
     metodos, _ = database.obtener_metodos_pago()
-    return categorias, socios, metodos
+    socios, _ = database.admin_get_todos_socios() # Necesitamos los socios para el filtro
+    return sucursales, usuarios, metodos, socios
 
-# --- PESTAÑAS PRINCIPALES DEL MÓDULO DE REPORTES ---
+# --- PESTAÑAS PRINCIPALES ---
 tab_op, tab_cde, tab_analisis = st.tabs([
     "📊 Cierres Operativos (Log)", 
     "🏦 Cierres CDE (Log)",
     "📈 Análisis de Ingresos"
 ])
-
 
 # ==========================================================
 # PESTAÑA 1: REPORTE OPERATIVO (LOG DE CIERRES)
@@ -343,42 +315,57 @@ with tab_cde:
                         {} 
                     )
 # ==========================================================
-# PESTAÑA 3: ANÁLISIS DE INGRESOS (el antiguo "Agregados")
+# PESTAÑA 3: ANÁLISIS DE INGRESOS (CON FILTRO DE SOCIO)
 # ==========================================================
 with tab_analisis:
     st.header("Análisis de Ingresos por Cierre Verificado")
-    st.info("Este reporte extrae los totales de ingresos del resumen guardado en cada cierre (`verificacion_pagos_detalle`).")
+    st.info("Este reporte extrae los totales de ingresos del resumen guardado en cada cierre.")
 
-    # --- Carga de datos para filtros de esta pestaña ---
-    sucursales_db_agg, usuarios_db_agg = cargar_filtros_data_basicos()
-    _, _, metodos_db_agg = cargar_data_filtros_avanzados() # Usamos la otra función para obtener los métodos
-    
+    sucursales_db, usuarios_db, metodos_db, socios_db = cargar_filtros_data_basicos()
+
     st.subheader("Filtros (Todos opcionales)")
     
     col_f1, col_f2 = st.columns(2)
     fecha_ini_agg = col_f1.date_input("Fecha Desde", value=None, key="analisis_fi")
     fecha_fin_agg = col_f2.date_input("Fecha Hasta", value=None, key="analisis_ff")
 
-    col_f3, col_f4, col_f5 = st.columns(3)
-    op_suc = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db_agg}}
+    col_f3, col_f4 = st.columns(2)
+    op_suc = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db}}
     sel_suc_id = op_suc[col_f3.selectbox("Sucursal", options=op_suc.keys(), key="analisis_s")]
     
-    op_user = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db_agg}}
+    op_user = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db}}
     sel_user_id = op_user[col_f4.selectbox("Usuario", options=op_user.keys(), key="analisis_u")]
 
-    op_metodo = {"TODOS": None, **{m['nombre']: m['nombre'] for m in metodos_db_agg}}
-    sel_metodo = op_metodo[col_f5.selectbox("Método de Pago", options=op_metodo.keys(), key="analisis_m")]
+    # --- NUEVO FILTRO DE SOCIO ---
+    col_f5, col_f6 = st.columns(2)
+    
+    # Creamos la lista de Socios + "Ventas (POS)"
+    opciones_socio_psc = {"TODOS": None, "Ventas (POS)": "ventas_pos"}
+    for s in socios_db:
+        opciones_socio_psc[s['nombre']] = s['id']
+    
+    sel_socio_llave = col_f5.selectbox("Filtrar por Socio o Ventas (POS)", options=opciones_socio_psc.keys(), key="analisis_socio")
+    socio_id_filtrar = opciones_socio_psc[sel_socio_llave]
+
+    op_metodo = {"TODOS": None, **{m['nombre']: m['nombre'] for m in metodos_db}}
+    sel_metodo = op_metodo[col_f6.selectbox("Método de Pago", options=op_metodo.keys(), key="analisis_m")]
 
     if st.button("Generar Reporte de Ingresos", type="primary"):
         str_ini = fecha_ini_agg.strftime('%Y-%m-%d') if fecha_ini_agg else None
         str_fin = fecha_fin_agg.strftime('%Y-%m-%d') if fecha_fin_agg else None
-
+        
+        # Lógica especial para el filtro de Socio/PSC
+        socio_id_param = None
+        if socio_id_filtrar and socio_id_filtrar != "ventas_pos":
+            socio_id_param = socio_id_filtrar
+        
         with st.spinner("Generando reporte..."):
             data, err = database.admin_reporte_ingresos_json(
                 fecha_inicio=str_ini, fecha_fin=str_fin,
                 sucursal_id=sel_suc_id,
                 usuario_id=sel_user_id,
-                metodo_pago=sel_metodo
+                metodo_pago=sel_metodo,
+                socio_id=socio_id_param
             )
         
         st.subheader("Resultados: Ingresos Verificados")
@@ -386,10 +373,14 @@ with tab_analisis:
         elif not data: st.warning("No se encontraron ingresos para los filtros seleccionados.")
         else:
             df = pd.DataFrame(data).astype({'total_sistema': float})
+            
+            # Si el usuario filtró por "Ventas (POS)", filtramos el dataframe
+            if socio_id_filtrar == "ventas_pos":
+                df = df[df['fuente'].str.contains("Ventas", na=False)]
+
             st.metric("Total General Ingresado (Según filtros)", f"${df['total_sistema'].sum():,.2f}")
             st.dataframe(df.style.format({"total_sistema": "${:,.2f}"}), width='stretch')
+            
             st.subheader("Totales por Método de Pago")
             df_grouped = df.groupby('metodo_pago')['total_sistema'].sum().sort_values(ascending=False)
             st.bar_chart(df_grouped)
-
-    st.info("**Nota Importante:** Este reporte no puede filtrar por Socio individual, ya que el resumen `verificacion_pagos_detalle` guarda los totales de forma consolidada.")
