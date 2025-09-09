@@ -836,3 +836,41 @@ def admin_buscar_cierres_cde_filtrados(fecha_inicio, fecha_fin, sucursal_id=None
 
     except Exception as e:
         return [], f"Error al buscar cierres CDE filtrados: {e}"
+
+# --- FUNCIONES DE REPORTES AGREGADOS ---
+
+def admin_reporte_gastos_agregados(fecha_inicio, fecha_fin, sucursal_id=None):
+    """
+    Llama a la función SQL 'reporte_gastos_agregados' para obtener los gastos
+    sumarizados por categoría en un rango de fechas.
+    """
+    try:
+        params = {
+            'fecha_inicio': fecha_inicio,
+            'fecha_fin': fecha_fin
+        }
+        if sucursal_id:
+            params['p_sucursal_id'] = sucursal_id
+            
+        response = supabase.rpc('reporte_gastos_agregados', params).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al ejecutar reporte de gastos: {e}"
+
+def admin_reporte_ingresos_socios(fecha_inicio, fecha_fin, sucursal_id=None):
+    """
+    Llama a la función SQL 'reporte_ingresos_socios' para obtener los ingresos
+    sumarizados por socio y método de pago en un rango de fechas.
+    """
+    try:
+        params = {
+            'fecha_inicio': fecha_inicio,
+            'fecha_fin': fecha_fin
+        }
+        if sucursal_id:
+            params['p_sucursal_id'] = sucursal_id
+
+        response = supabase.rpc('reporte_ingresos_socios', params).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al ejecutar reporte de ingresos por socio: {e}"
