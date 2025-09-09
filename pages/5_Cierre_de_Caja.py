@@ -9,9 +9,16 @@ import tempfile
 import os
 import json 
 
-# --- GUARDIÁN DE SEGURIDAD (Permite a TODOS los logueados) ---
+# --- GUARDIÁN DE SEGURIDAD (ACTUALIZADO: Bloquea al rol 'cde') ---
 if not st.session_state.get("autenticado"):
     st.error("Acceso denegado. 🚫 Por favor, inicie sesión desde la página principal.")
+    st.stop()
+
+# Nueva Regla: Verificar si el rol es 'cde' y bloquearlo
+rol_usuario = st.session_state.get("perfil", {}).get("rol")
+if rol_usuario == 'cde':
+    st.error("Acceso denegado. 🚫 Este módulo no está disponible para el rol CDE.")
+    st.info("Por favor, utilice el módulo '6_Cierre_CDE'.")
     st.stop()
 # ------------------------------------
 
