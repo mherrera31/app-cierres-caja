@@ -978,7 +978,7 @@ def render_tab_caja_final():
 def cargar_datos_verificacion(cierre_id):
     pagos_ventas_raw, err_p = database.obtener_pagos_del_cierre(cierre_id)
     metodos_maestros_raw, err_m = database.obtener_metodos_pago_con_flags()
-    ingresos_adic_raw, err_i = database.obtener_ingresos_adicionales_del_cierre(cierre_id) # Esta ya trae los flags del socio
+    ingresos_adic_raw, err_i = database.obtener_ingresos_adicionales_del_cierre(cierre_id)
     
     if err_m:
          st.error(f"Error Crítico al cargar Métodos de Pago: {err_m}")
@@ -988,34 +988,59 @@ def cargar_datos_verificacion(cierre_id):
         
     metodos_maestros = {}
     nombres_maestros = set()
+    set_maestros_verificables = set() # Nombres 'lower' de métodos que requieren match
+    
     if metodos_maestros_raw:
         for mp in metodos_maestros_raw:
             if mp['is_activo']:
                 nombre_lower = mp['nombre'].lower()
                 metodos_maestros[nombre_lower] = mp
                 nombres_maestros.add(nombre_lower)
+                if nombre_lower != 'efectivo':
+                    set_maestros_verificables.add(nombre_lower)
 
-    totales_sistema_ventas = {}
+    # 1. Calcular totales de Ventas (POS)
+    totales_sistema_consolidados = {}
     nombres_ventas_registrados = set()
     if pagos_ventas_raw:
         for pago in pagos_ventas_raw:
             if pago.get('metodo_pago') and pago.get('metodo_pago').get('nombre'):
-                nombre = pago['metodo_pago']['nombre']
-                nombre_lower = nombre.lower()
+                nombre_lower = pago['metodo_pago']['nombre'].lower()
                 monto = Decimal(str(pago.get('monto', 0)))
                 nombres_ventas_registrados.add(nombre_lower)
-                if nombre_lower not in totales_sistema_ventas:
-                    totales_sistema_ventas[nombre_lower] = Decimal('0.00')
-                totales_sistema_ventas[nombre_lower] += monto
+                
+                if nombre_lower in set_maestros_verificables:
+                    if nombre_lower not in totales_sistema_consolidados:
+                        totales_sistema_consolidados[nombre_lower] = Decimal('0.00')
+                    totales_sistema_consolidados[nombre_lower] += monto
+
+    # 2. Calcular totales de Socios y AÑADIRLOS a los totales consolidados
+    ingresos_informativos = [] # Lista para los ingresos que NO se suman al match
+    if ingresos_adic_raw:
+        for ing in ingresos_adic_raw:
+            metodo_lower = (ing.get('metodo_pago') or "").lower()
+            reglas_socio = ing.get('socios') or {}
+            
+            # LÓGICA DE CONSOLIDACIÓN:
+            if (metodo_lower in set_maestros_verificables and 
+                reglas_socio.get('requiere_verificacion_voucher') == True):
+                
+                # SÍ, este ingreso debe sumarse al match consolidado
+                monto = Decimal(str(ing.get('monto', 0)))
+                if metodo_lower not in totales_sistema_consolidados:
+                    totales_sistema_consolidados[metodo_lower] = Decimal('0.00')
+                totales_sistema_consolidados[metodo_lower] += monto
+            else:
+                # NO, este es un ingreso informativo (efectivo, o socio sin verificación)
+                ingresos_informativos.append(ing)
             
     pagos_huerfanos = (nombres_ventas_registrados - nombres_maestros) - {'efectivo'}
-    set_maestros_verificables = set(metodos_maestros.keys()) - {'efectivo'}
 
     return {
         "metodos_maestros": metodos_maestros, 
         "set_maestros_verificables": set_maestros_verificables,
-        "totales_ventas": totales_sistema_ventas,
-        "ingresos_adic_raw": ingresos_adic_raw or [], 
+        "totales_consolidados": totales_sistema_consolidados, # <- EL NUEVO DICCIONARIO
+        "ingresos_informativos": ingresos_informativos, # <- Los ingresos que quedaron fuera
         "huerfanos": pagos_huerfanos
     }, None
 
@@ -1036,10 +1061,12 @@ def render_tab_verificacion():
     saved_verification_lookup = {}
     if datos_guardados:
         for item in datos_guardados.get('verificacion_con_match', []):
-            lookup_key = item.get('lookup_key') or f"{item.get('metodo', '').lower()}_ventas"
-            saved_verification_lookup[lookup_key] = item
+            lookup_key = item.get('lookup_key') # Usamos la lookup_key guardada
+            if lookup_key:
+                saved_verification_lookup[lookup_key] = item
     
     st.subheader("Estado de Conciliación General")
+    # ... (El métric de Efectivo sigue igual)
     saldo_teorico = Decimal(str(cierre_actual.get('total_calculado_teorico', 0.0)))
     conteo_final_dict = cierre_actual.get('saldo_final_detalle') or {}
     saldo_fisico = Decimal(str(conteo_final_dict.get('total', 0.0)))
@@ -1054,7 +1081,9 @@ def render_tab_verificacion():
     )
     st.divider()
 
-    st.subheader("Sección 1: Pagos que Requieren Match de Voucher")
+    st.subheader("Sección 1: Pagos Consolidados que Requieren Match")
+    st.info("Estos totales incluyen Ventas (POS) Y Cobros de Socios (Ingresos Adic.) que requieren verificación.")
+    
     vouchers_match_ok = True 
     json_verificacion_con_match = [] 
     widget_data = {} 
@@ -1064,132 +1093,80 @@ def render_tab_verificacion():
         if not datos_verif['metodos_maestros']:
              st.warning("No hay métodos de pago (reglas) cargados en la base de datos.")
         
+        # 1. Iteramos sobre las REGLAS (métodos maestros), excluyendo efectivo
         for nombre_lower in datos_verif['set_maestros_verificables']:
             regla_metodo = datos_verif['metodos_maestros'][nombre_lower]
             nombre_display = regla_metodo['nombre']
 
-            total_ventas = datos_verif['totales_ventas'].get(nombre_lower, Decimal('0.00'))
-            lookup_key_ventas = f"{nombre_lower}_ventas"
+            # --- LÓGICA ACTUALIZADA ---
+            # Ahora solo leemos del nuevo diccionario de TOTALES CONSOLIDADOS
+            total_consolidado = datos_verif['totales_consolidados'].get(nombre_lower, Decimal('0.00'))
+            lookup_key = f"metodo_{nombre_lower}" # Key única para este método
             
-            data_guardada_ventas = saved_verification_lookup.get(lookup_key_ventas, {})
-            valor_reportado_guardado_ventas = float(data_guardada_ventas.get('total_reportado', 0.0))
-            url_foto_guardada_ventas = data_guardada_ventas.get('url_foto', None)
+            data_guardada = saved_verification_lookup.get(lookup_key, {})
+            valor_reportado_guardado = float(data_guardada.get('total_reportado', 0.0))
+            url_foto_guardada = data_guardada.get('url_foto', None)
             
-            st.markdown(f"**Verificando: {nombre_display} (VENTAS/POS)**")
+            st.markdown(f"**Verificando (Total Consolidado): {nombre_display}**")
             cols_v, cols_v2, cols_v3 = st.columns(3)
-            cols_v.metric("Total Sistema (Ventas)", f"${total_ventas:,.2f}")
-            valor_reportado_ventas = cols_v2.number_input(
-                "Total Reportado (Voucher Ventas)", min_value=0.0, step=0.01, format="%.2f",
-                value=valor_reportado_guardado_ventas, key=f"verif_num_{lookup_key_ventas}"
+            cols_v.metric("Total Sistema (Ventas + Socios)", f"${total_consolidado:,.2f}")
+            valor_reportado = cols_v2.number_input(
+                f"Total Reportado (Voucher {nombre_display})", min_value=0.0, step=0.01, format="%.2f",
+                value=valor_reportado_guardado, key=f"verif_num_{lookup_key}"
             )
-            diff_v = Decimal(str(valor_reportado_ventas)) - total_ventas
+            diff_v = Decimal(str(valor_reportado)) - total_consolidado
             voucher_v_ok = abs(diff_v) < Decimal('0.01')
             if not voucher_v_ok: vouchers_match_ok = False
+            
             cols_v3.metric("Diferencia", f"${diff_v:,.2f}", 
                            delta=f"{'OK' if voucher_v_ok else 'FALLO'}", 
                            delta_color="normal" if voucher_v_ok else "inverse")
             
             file_uploader_v = None
             if regla_metodo.get('requiere_foto_voucher', False):
-                if url_foto_guardada_ventas:
-                    st.markdown(f"✅ Foto Guardada (Ventas): **[Ver Foto]({url_foto_guardada_ventas})**", unsafe_allow_html=True)
+                if url_foto_guardada:
+                    st.markdown(f"✅ Foto Guardada: **[Ver Foto]({url_foto_guardada})**", unsafe_allow_html=True)
                 else:
-                    file_uploader_v = st.file_uploader(f"Subir foto Voucher VENTAS ({nombre_display})", type=["jpg", "jpeg", "png"], key=f"verif_file_{lookup_key_ventas}")
+                    file_uploader_v = st.file_uploader(f"Subir foto Voucher ({nombre_display})", type=["jpg", "jpeg", "png"], key=f"verif_file_{lookup_key}")
+            else:
+                 st.caption(f"({nombre_display} no requiere foto obligatoria)")
             
-            widget_data[lookup_key_ventas] = { "file_widget": file_uploader_v, "url_guardada": url_foto_guardada_ventas, "nombre_display": f"{nombre_display}_Ventas" }
+            widget_data[lookup_key] = { "file_widget": file_uploader_v, "url_guardada": url_foto_guardada, "nombre_display": nombre_display }
+            
             json_verificacion_con_match.append({
-                "metodo": nombre_display, "fuente": "Ventas (POS)",
+                "metodo": nombre_display, "fuente": "Consolidado (Ventas + Socios)",
                 "requiere_foto": regla_metodo.get('requiere_foto_voucher', False),
-                "total_sistema": float(total_ventas), "total_reportado": float(valor_reportado_ventas),
-                "match_ok": voucher_v_ok, "url_foto": None, "lookup_key": lookup_key_ventas
-            })
-
-        st.markdown("---")
-        st.markdown("**Verificando: Ingresos Adicionales (Socios)**")
-        
-        ingresos_a_verificar = []
-        ingresos_informativos = []
-
-        for ing in datos_verif['ingresos_adic_raw']:
-            metodo_lower = (ing.get('metodo_pago') or "").lower()
-            reglas_socio = ing.get('socios') or {}
-            
-            if (metodo_lower in datos_verif['set_maestros_verificables'] and 
-                reglas_socio.get('requiere_verificacion_voucher') == True):
-                ingresos_a_verificar.append(ing)
-            elif (metodo_lower == 'efectivo' and 
-                  reglas_socio.get('afecta_conteo_efectivo') == False):
-                ingresos_informativos.append(ing)
-            elif (metodo_lower != 'efectivo' and 
-                  (metodo_lower not in datos_verif['set_maestros_verificables'] or 
-                   reglas_socio.get('requiere_verificacion_voucher') == False)):
-                ingresos_informativos.append(ing)
-
-        if not ingresos_a_verificar:
-            st.caption("No hay ingresos adicionales que requieran verificación de voucher.")
-
-        for ing in ingresos_a_verificar:
-            nombre_metodo = ing['metodo_pago']
-            nombre_lower = nombre_metodo.lower()
-            socio_nombre = ing.get('socios', {}).get('nombre', 'N/A')
-            regla_metodo = datos_verif['metodos_maestros'][nombre_lower]
-            total_sistema_ing = Decimal(str(ing.get('monto', 0)))
-            lookup_key = f"ing_{ing['id']}" 
-
-            data_guardada_ing = saved_verification_lookup.get(lookup_key, {})
-            valor_reportado_guardado_ing = float(data_guardada_ing.get('total_reportado', 0.0))
-            url_foto_guardada_ing = data_guardada_ing.get('url_foto', None)
-
-            st.markdown(f"**Socio {socio_nombre} / M&eacute;todo: {nombre_metodo}**")
-            cols_i, cols_i2, cols_i3 = st.columns(3)
-            cols_i.metric("Total Sistema (Ingreso)", f"${total_sistema_ing:,.2f}")
-            valor_reportado_ing = cols_i2.number_input(
-                "Monto Reportado (Voucher Socio)", min_value=0.0, step=0.01, format="%.2f",
-                value=valor_reportado_guardado_ing, key=f"verif_num_{lookup_key}"
-            )
-            diff_i = Decimal(str(valor_reportado_ing)) - total_sistema_ing
-            voucher_i_ok = abs(diff_i) < Decimal('0.01')
-            if not voucher_i_ok: vouchers_match_ok = False
-            cols_i3.metric("Diferencia", f"${diff_i:,.2f}", 
-                           delta=f"{'OK' if voucher_i_ok else 'FALLO'}", 
-                           delta_color="normal" if voucher_i_ok else "inverse")
-            
-            file_uploader_i = None
-            if regla_metodo.get('requiere_foto_voucher', False):
-                if url_foto_guardada_ing:
-                    st.markdown(f"✅ Foto Guardada (Socio): **[Ver Foto]({url_foto_guardada_ing})**", unsafe_allow_html=True)
-                else:
-                    file_uploader_i = st.file_uploader(f"Subir foto Voucher SOCIO ({socio_nombre}/{nombre_metodo})", type=["jpg", "jpeg", "png"], key=f"verif_file_{lookup_key}")
-            
-            widget_data[lookup_key] = { "file_widget": file_uploader_i, "url_guardada": url_foto_guardada_ing, "nombre_display": f"{socio_nombre}_{nombre_metodo}" }
-            json_verificacion_con_match.append({
-                "metodo": f"{nombre_metodo} (Socio: {socio_nombre})", "fuente": "Ingreso Adicional",
-                "requiere_foto": regla_metodo.get('requiere_foto_voucher', False),
-                "total_sistema": float(total_sistema_ing), "total_reportado": float(valor_reportado_ing),
-                "match_ok": voucher_i_ok, "url_foto": None, "lookup_key": lookup_key 
+                "total_sistema": float(total_consolidado), "total_reportado": float(valor_reportado),
+                "match_ok": voucher_v_ok, "url_foto": None, "lookup_key": lookup_key
             })
             st.divider()
 
+        # --- YA NO NECESITAMOS EL SEGUNDO BUCLE PARA INGRESOS ADICIONALES ---
+        # (Porque ya están sumados arriba)
+
         submitted_verif = st.form_submit_button("Guardar Verificación de Pagos", type="primary")
 
-    st.subheader("Sección 2: Registros Informativos (Sin Match Requerido)")
+    st.subheader("Sección 2: Registros Informativos")
+    st.caption("Pagos Huérfanos (ventas sin regla) e Ingresos de Socios que no afectan el match (ej. Efectivo, o Socios sin 'requiere_verificacion')")
     
-    with st.expander("Ver Pagos Huérfanos (Ventas sin regla) e Ingresos Informativos"):
+    with st.expander("Ver Registros Informativos"):
         
         st.markdown("**Pagos Huérfanos (Ventas)**")
         if not datos_verif['huerfanos']: st.caption("No hay pagos huérfanos.")
         for nombre_huerfano in datos_verif['huerfanos']:
-            total_h = datos_verif['totales_ventas'].get(nombre_huerfano, Decimal('0.00'))
+            total_h = datos_verif['totales_ventas'].get(nombre_huerfano, Decimal('0.00')) # Esto sigue leyendo de ventas directas
             if total_h > 0:
-                st.metric(label=f"{nombre_huerfano.title()} (Venta)", value=f"${total_h:,.2f}")
+                st.metric(label=f"{nombre_huerfano.title()} (Venta Huérfana)", value=f"${total_h:,.2f}")
                 json_registros_informativos.append({
                     "metodo": nombre_huerfano.title(), "fuente": "Ventas (Huérfano)", "total_sistema": float(total_h)
                 })
 
         st.markdown("**Ingresos Adicionales (Informativos)**")
-        if not ingresos_informativos:
+        # Esto ahora solo muestra los ingresos que filtramos ANTES (ej. en efectivo)
+        ingresos_informativos_lista = datos_verif.get('ingresos_informativos', [])
+        if not ingresos_informativos_lista:
              st.caption("No hay ingresos adicionales informativos.")
-        for ing in ingresos_informativos:
+        for ing in ingresos_informativos_lista:
             nombre_metodo = ing.get('metodo_pago', 'N/A')
             socio_nombre = ing.get('socios', {}).get('nombre', 'N/A')
             total_ing = Decimal(str(ing.get('monto', 0)))
@@ -1198,7 +1175,7 @@ def render_tab_verificacion():
                 "metodo": nombre_metodo, "fuente": f"Ingreso Adicional ({socio_nombre})", "total_sistema": float(total_ing)
             })
 
-
+    # --- Lógica de Guardado (Submit) ---
     if submitted_verif:
         with st.spinner("Guardando verificación y subiendo fotos (si las hay)..."):
             hubo_error_subida = False
@@ -1222,10 +1199,11 @@ def render_tab_verificacion():
                                 item['url_foto'] = url_publica
                                 break
             
+            # Asignar URLs de fotos guardadas previamente si no se subió una nueva
             for item in json_verificacion_con_match:
                 if item['url_foto'] is None: 
-                    lookup_key = item.get('lookup_key') or f"{item['metodo'].lower()}_ventas"
-                    if widget_data.get(lookup_key): 
+                    lookup_key = item.get('lookup_key')
+                    if widget_data.get(lookup_key):
                         url_guardada_previa = widget_data[lookup_key].get('url_guardada')
                         if url_guardada_previa: item['url_foto'] = url_guardada_previa 
 
@@ -1243,22 +1221,20 @@ def render_tab_verificacion():
                     st.rerun()
 
     st.divider()
+    # --- Lógica de Finalización (Sin cambios) ---
     st.header("Finalización del Cierre")
     match_completo_ok = cash_match_ok and vouchers_match_ok
     usuario_es_admin = (rol_usuario == 'admin')
     boton_finalizar_habilitado = False
-    razon_deshabilitado = ""
-
-    if match_completo_ok: boton_finalizar_habilitado = True
+    
+    if match_completo_ok: 
+        boton_finalizar_habilitado = True
     elif usuario_es_admin:
         boton_finalizar_habilitado = True
         st.warning("ADMIN: El cierre presenta un DESCUADRE, pero tienes permiso para forzar la finalización.")
     else:
         boton_finalizar_habilitado = False
-        if not cash_match_ok:
-            razon_deshabilitado = "Finalización bloqueada: El EFECTIVO (Paso 6) no cuadra con el RESUMEN (Paso 5)."
-        elif not vouchers_match_ok:
-            razon_deshabilitado = "Finalización bloqueada: Los VOUCHERS (Paso 7) no cuadran con el Sistema."
+        razon_deshabilitado = "Finalización bloqueada: El EFECTIVO (Paso 7) o los VOUCHERS (Paso 8) no cuadran."
         st.error(razon_deshabilitado)
 
     if st.button("FINALIZAR CIERRE DEL DÍA", type="primary", disabled=not boton_finalizar_habilitado):
@@ -1276,8 +1252,8 @@ def render_tab_verificacion():
                 try:
                     cargar_gastos_registrados.clear()
                     cargar_ingresos_existentes.clear()
-                    cargar_deliveries_registrados.clear() # Limpiar caché nuevo
-                    cargar_compras_registradas.clear() # Limpiar caché nuevo
+                    cargar_deliveries_registrados.clear()
+                    cargar_compras_registradas.clear()
                 except NameError: pass 
                 st.rerun()
 
