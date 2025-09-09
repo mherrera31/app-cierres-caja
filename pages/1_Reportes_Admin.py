@@ -9,39 +9,60 @@ import pandas as pd
 from datetime import datetime
 from decimal import Decimal
 
-# --- (Bloque de ImportPath y Guardián de Seguridad - sin cambios) ---
+# --- BLOQUE DE CORRECCIÓN DE IMPORTPATH (VITAL) ---
 script_dir = os.path.dirname(__file__)
 project_root = os.path.abspath(os.path.join(script_dir, '..'))
 sys.path.append(project_root)
+# --- FIN DEL BLOQUE ---
 
+# --- GUARDIÁN DE SEGURIDAD (ADMIN) ---
 if not st.session_state.get("autenticado"):
-    st.error("Acceso denegado...")
+    st.error("Acceso denegado. 🚫 Por favor, inicie sesión desde la página principal.")
     st.stop() 
+
 if st.session_state.get("perfil", {}).get("rol") != 'admin':
-    st.error("Acceso denegado...")
+    st.error("Acceso denegado. Esta sección es solo para administradores. 🔒")
     st.stop()
 # ------------------------------------
 
+
+# --- Configuración de la Página ---
 st.set_page_config(page_title="Reportes de Cierre", layout="wide")
 st.title("Panel de Reportes Administrativos")
 
-# --- (Funciones de Caché para Filtros - sin cambios) ---
+# --- FUNCIONES DE CACHÉ PARA CARGAR DATOS DE FILTROS ---
 @st.cache_data(ttl=600) 
-def cargar_filtros_data_operativo():
+def cargar_filtros_data_basicos():
+    """ Carga solo sucursales y usuarios para los reportes de Log. """
     sucursales_data, _ = database.obtener_sucursales()
     usuarios_data, _ = database.admin_get_lista_usuarios()
-    metodos_pago, _ = database.obtener_metodos_pago()
-    return sucursales_data, usuarios_data, metodos_pago
+    return sucursales_data, usuarios_data
 
-# --- PESTAÑAS PRINCIPALES ---
-tab_op, tab_cde, tab_agg = st.tabs([
+@st.cache_data(ttl=600) 
+def cargar_filtros_data_cde():
+    """ Carga solo sucursales CDE y usuarios. """
+    sucursales_data, _ = database.obtener_sucursales_cde()
+    usuarios_data, _ = database.admin_get_lista_usuarios()
+    return sucursales_data, usuarios_data
+
+@st.cache_data(ttl=600)
+def cargar_data_filtros_avanzados():
+    """ Carga datos maestros para los filtros de reportes agregados. """
+    categorias, _ = database.admin_get_todas_categorias()
+    socios, _ = database.admin_get_todos_socios()
+    metodos, _ = database.obtener_metodos_pago()
+    return categorias, socios, metodos
+
+# --- PESTAÑAS PRINCIPALES DEL MÓDULO DE REPORTES ---
+tab_op, tab_cde, tab_analisis = st.tabs([
     "📊 Cierres Operativos (Log)", 
     "🏦 Cierres CDE (Log)",
     "📈 Análisis de Ingresos"
 ])
 
+
 # ==========================================================
-# PESTAÑA 1: REPORTE OPERATIVO (Tu reporte original)
+# PESTAÑA 1: REPORTE OPERATIVO (LOG DE CIERRES)
 # ==========================================================
 with tab_op:
     
@@ -49,68 +70,52 @@ with tab_op:
     def op_mostrar_reporte_denominaciones(titulo, data_dict):
         st.subheader(titulo)
         if not data_dict or not data_dict.get('detalle'):
-            st.info("No hay datos de conteo registrados para este paso.")
+            st.info("No hay datos de conteo para este paso.")
             return
-
         detalle = data_dict.get('detalle', {})
         total = data_dict.get('total', 0)
-        
         try:
             df = pd.DataFrame.from_dict(detalle, orient='index').reset_index()
-            column_names = ["Denominación", "Cantidad", "Subtotal"]
-            df.columns = column_names[:len(df.columns)]
-            # CORREGIDO: Advertencia de Deprecación
+            df.columns = ["Denominación", "Cantidad", "Subtotal"]
             st.dataframe(df, width='stretch', hide_index=True)
         except Exception as e:
             st.json(detalle)
-            st.error(f"Error al renderizar dataframe: {e}")
-            
+            st.error(f"Error al renderizar: {e}")
         st.metric(label=f"TOTAL CONTADO ({titulo})", value=f"${float(total):,.2f}")
 
     def op_mostrar_reporte_verificacion(data_dict):
+        # ... (código sin cambios)
         st.subheader("Reporte de Verificación de Pagos")
         if not data_dict or (not data_dict.get('verificacion_con_match') and not data_dict.get('registros_informativos')):
             st.info("No hay datos de verificación guardados para este cierre.")
             return
-
-        st.markdown("---")
         st.markdown("**Pagos Verificados (Match)**")
         verificados = data_dict.get('verificacion_con_match', [])
-        if not verificados:
-            st.markdown("*N/A*")
-        
+        if not verificados: st.markdown("*N/A*")
         for item in verificados:
             match_texto = "OK ✔️" if item.get('match_ok') else "FALLO ❌"
-            
             st.markdown(f"**{item.get('metodo')}** (Fuente: *{item.get('fuente')}*)")
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Sistema", f"${item.get('total_sistema', 0):,.2f}")
             col2.metric("Total Reportado", f"${item.get('total_reportado', 0):,.2f}")
             col3.metric("Estado Match", f"{match_texto}")
-
             url_foto = item.get('url_foto')
-            if url_foto:
-                st.markdown(f"**[Ver Foto Adjunta]({url_foto})**", unsafe_allow_html=True)
+            if url_foto: st.markdown(f"**[Ver Foto Adjunta]({url_foto})**", unsafe_allow_html=True)
             st.divider()
-
         st.markdown("**Pagos Informativos (Sin Match)**")
         informativos = data_dict.get('registros_informativos', [])
-        if not informativos:
-            st.markdown("*N/A*")
-        
+        if not informativos: st.markdown("*N/A*")
         for item in informativos:
             st.markdown(f"**{item.get('metodo')}** (Fuente: *{item.get('fuente')}*)")
             st.metric(label=f"{item.get('metodo')} (Informativo)", value=f"${item.get('total_sistema', 0):,.2f}")
             st.divider()
 
     def op_mostrar_reporte_gastos(cierre_id):
+        # ... (código sin cambios)
         st.subheader("Reporte de Gastos")
         gastos_lista, err_g = database.obtener_gastos_del_cierre(cierre_id)
-        
-        if err_g:
-            st.error(f"Error al cargar gastos: {err_g}")
-        elif not gastos_lista:
-            st.info("No se registraron gastos para este cierre.")
+        if err_g: st.error(f"Error: {err_g}")
+        elif not gastos_lista: st.info("No se registraron gastos.")
         else:
             total_gastos = 0
             df_data = []
@@ -118,44 +123,29 @@ with tab_op:
                 nombre_cat = gasto.get('gastos_categorias', {}).get('nombre', 'N/A') if gasto.get('gastos_categorias') else 'N/A'
                 monto = gasto.get('monto', 0)
                 total_gastos += monto
-                df_data.append({
-                    "Categoría": nombre_cat,
-                    "Monto": monto,
-                    "Notas": gasto.get('notas')
-                })
-            
-            # CORREGIDO: Advertencia de Deprecación
+                df_data.append({"Categoría": nombre_cat, "Monto": monto, "Notas": gasto.get('notas')})
             st.dataframe(df_data, width='stretch')
             st.metric("TOTAL GASTOS", f"${total_gastos:,.2f}")
     
     def comando_reabrir_operativo(cierre_id):
         _, error = database.reabrir_cierre(cierre_id)
-        if error:
-            st.error(f"No se pudo reabrir el cierre: {error}")
+        if error: st.error(f"No se pudo reabrir: {error}")
         else:
-            st.success(f"¡Cierre {cierre_id} reabierto con éxito!")
-            cargar_filtros_data_operativo.clear()
+            st.success(f"¡Cierre {cierre_id} reabierto!")
+            cargar_filtros_data_basicos.clear()
             st.rerun() 
 
-    # --- NUEVA FUNCIÓN (AÑADIDA Y CORREGIDA INDENTACIÓN) ---
     def comando_revisar_abierto(cierre_objeto, nombre_sucursal):
-        """
-        Guarda el objeto del cierre seleccionado en la sesión y 
-        prepara al admin para "saltar" a ese cierre en la otra página.
-        """
         st.session_state['admin_review_cierre_obj'] = cierre_objeto
         st.session_state['admin_review_sucursal_nombre'] = nombre_sucursal
-        st.success(f"Modo Revisión (Admin) activado para: {nombre_sucursal}. Por favor, navega a la página 'Cierre de Caja' desde la barra lateral.")
-        st.warning("La página de Cierre de Caja se cargará automáticamente con esta sesión abierta.")
-
+        st.success(f"Modo Revisión activado para: {nombre_sucursal}. Navega a 'Cierre de Caja'.")
+    
     # --- Filtros (Operativo) ---
-    sucursales_db_op, usuarios_db_op = cargar_filtros_data_operativo()
-    opciones_sucursal_op = {"TODAS": None}
-    for s in sucursales_db_op: opciones_sucursal_op[s['sucursal']] = s['id'] 
-    opciones_usuario_op = {"TODOS": None}
-    for u in usuarios_db_op: opciones_usuario_op[u['nombre']] = u['id'] 
+    st.header("Log de Cierres de Caja Operativos")
+    sucursales_db_op, usuarios_db_op = cargar_filtros_data_basicos() # <-- LLAMADA CORREGIDA
+    opciones_sucursal_op = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db_op}}
+    opciones_usuario_op = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db_op}}
 
-    st.header("Filtros de Búsqueda (Operativos)")
     col_filtros1_op, col_filtros2_op = st.columns(2)
     with col_filtros1_op:
         fecha_ini_op = st.date_input("Fecha Desde", value=None, key="op_fecha_ini")
@@ -164,7 +154,7 @@ with tab_op:
         fecha_fin_op = st.date_input("Fecha Hasta", value=None, key="op_fecha_fin")
         sel_usuario_nombre_op = st.selectbox("Usuario", options=opciones_usuario_op.keys(), key="op_usuario")
     
-    solo_disc_op = st.checkbox("Mostrar solo cierres operativos con discrepancia inicial")
+    solo_disc_op = st.checkbox("Mostrar solo cierres con discrepancia inicial")
     
     sucursal_id_filtrar_op = opciones_sucursal_op[sel_sucursal_nombre_op]
     usuario_id_filtrar_op = opciones_usuario_op[sel_usuario_nombre_op]
@@ -353,14 +343,15 @@ with tab_cde:
                         {} 
                     )
 # ==========================================================
-# PESTAÑA 3: ANÁLISIS DE INGRESOS (NUEVO REPORTE)
+# PESTAÑA 3: ANÁLISIS DE INGRESOS (el antiguo "Agregados")
 # ==========================================================
 with tab_analisis:
     st.header("Análisis de Ingresos por Cierre Verificado")
-    st.info("Este reporte extrae los totales de ingresos directamente del resumen guardado en cada cierre de caja (`verificacion_pagos_detalle`).")
+    st.info("Este reporte extrae los totales de ingresos del resumen guardado en cada cierre (`verificacion_pagos_detalle`).")
 
-    sucursales_db, usuarios_db, metodos_db = cargar_filtros_data_operativo()
-
+    # --- Carga de datos para filtros de esta pestaña ---
+    sucursales_db_agg, usuarios_db_agg, metodos_db_agg = cargar_filtros_data_operativo()
+    
     st.subheader("Filtros (Todos opcionales)")
     
     col_f1, col_f2 = st.columns(2)
@@ -368,13 +359,13 @@ with tab_analisis:
     fecha_fin_agg = col_f2.date_input("Fecha Hasta", value=None, key="analisis_ff")
 
     col_f3, col_f4, col_f5 = st.columns(3)
-    op_suc = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db}}
+    op_suc = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db_agg}}
     sel_suc_id = op_suc[col_f3.selectbox("Sucursal", options=op_suc.keys(), key="analisis_s")]
     
-    op_user = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db}}
+    op_user = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db_agg}}
     sel_user_id = op_user[col_f4.selectbox("Usuario", options=op_user.keys(), key="analisis_u")]
 
-    op_metodo = {"TODOS": None, **{m['nombre']: m['nombre'] for m in metodos_db}}
+    op_metodo = {"TODOS": None, **{m['nombre']: m['nombre'] for m in metodos_db_agg}}
     sel_metodo = op_metodo[col_f5.selectbox("Método de Pago", options=op_metodo.keys(), key="analisis_m")]
 
     if st.button("Generar Reporte de Ingresos", type="primary"):
@@ -390,20 +381,14 @@ with tab_analisis:
             )
         
         st.subheader("Resultados: Ingresos Verificados")
-        if err: 
-            st.error(f"Error: {err}")
-        elif not data: 
-            st.warning("No se encontraron ingresos para los filtros seleccionados.")
+        if err: st.error(f"Error: {err}")
+        elif not data: st.warning("No se encontraron ingresos para los filtros seleccionados.")
         else:
             df = pd.DataFrame(data).astype({'total_sistema': float})
-            
             st.metric("Total General Ingresado (Según filtros)", f"${df['total_sistema'].sum():,.2f}")
-            
             st.dataframe(df.style.format({"total_sistema": "${:,.2f}"}), width='stretch')
-            
-            # Gráfico agrupado por método de pago
             st.subheader("Totales por Método de Pago")
             df_grouped = df.groupby('metodo_pago')['total_sistema'].sum().sort_values(ascending=False)
             st.bar_chart(df_grouped)
 
-    st.info("**Nota Importante:** Este reporte no puede filtrar por Socio individual, ya que el resumen `verificacion_pagos_detalle` guarda los totales de Ventas y Socios de forma consolidada, no individual.")
+    st.info("**Nota Importante:** Este reporte no puede filtrar por Socio individual, ya que el resumen `verificacion_pagos_detalle` guarda los totales de forma consolidada.")
