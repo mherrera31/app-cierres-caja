@@ -6,12 +6,33 @@ from supabase import create_client, Client
 import pytz
 from datetime import datetime, timedelta
 import json
-from decimal import Decimal # Importar Decimal para los cálculos
+from decimal import Decimal
+import streamlit as st # <-- IMPORTANTE: Añadir import de Streamlit
 
 load_dotenv()
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
+
+# 1. Inicializar el cliente de Supabase
 supabase: Client = create_client(supabase_url, supabase_key)
+
+# 2. --- ¡¡¡ESTE ES EL BLOQUE DE CÓDIGO CRÍTICO QUE ARREGLA TODO!!! ---
+# Revisa si hay una sesión guardada en Streamlit y la aplica al cliente de Supabase.
+# Esto asegura que el cliente esté autenticado en CADA recarga de CADA página.
+if 'sesion_auth' in st.session_state and st.session_state.sesion_auth is not None:
+    try:
+        # Intenta establecer la sesión con el token guardado
+        supabase.auth.set_session(
+            st.session_state.sesion_auth.access_token,
+            st.session_state.sesion_auth.refresh_token
+        )
+    except Exception as e:
+        # Si el token expira o es inválido, limpiamos la sesión
+        st.error(f"Tu sesión ha expirado o es inválida. Por favor, vuelve a iniciar sesión. Error: {e}")
+        st.session_state["autenticado"] = False
+        st.session_state["perfil"] = None
+        st.session_state["sesion_auth"] = None
+# --- FIN DEL BLOQUE CRÍTICO ---
 
 def iniciar_sesion(email, password):
     try:
