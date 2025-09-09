@@ -2,10 +2,7 @@
 # VERSIÓN CONSOLIDADA Y CORREGIDA (Arregla IndentationError y Deprecation Warnings)
 
 import streamlit as st
-import sys
-import os
-import database
-import pandas as pd
+import sys, os, database, pandas as pd
 from datetime import datetime
 from decimal import Decimal
 
@@ -13,12 +10,8 @@ from decimal import Decimal
 script_dir = os.path.dirname(__file__)
 project_root = os.path.abspath(os.path.join(script_dir, '..'))
 sys.path.append(project_root)
-
-if not st.session_state.get("autenticado"):
-    st.error("Acceso denegado...")
-    st.stop() 
-if st.session_state.get("perfil", {}).get("rol") != 'admin':
-    st.error("Acceso denegado...")
+if not st.session_state.get("autenticado") or st.session_state.get("perfil", {}).get("rol") != 'admin':
+    st.error("Acceso denegado.")
     st.stop()
 # ------------------------------------
 
@@ -28,16 +21,14 @@ st.title("Panel de Reportes Administrativos")
 # --- (Funciones de Caché para Filtros - sin cambios) ---
 @st.cache_data(ttl=600) 
 def cargar_filtros_data_operativo():
-    sucursales_data, _ = database.obtener_sucursales()
-    usuarios_data, _ = database.admin_get_lista_usuarios()
-    return sucursales_data, usuarios_data
-
+    sucursales, _ = database.obtener_sucursales()
+    usuarios, _ = database.admin_get_lista_usuarios()
+    return sucursales, usuarios
 @st.cache_data(ttl=600) 
 def cargar_filtros_data_cde():
-    sucursales_data, _ = database.obtener_sucursales_cde()
-    usuarios_data, _ = database.admin_get_lista_usuarios()
-    return sucursales_data, usuarios_data
-
+    sucursales, _ = database.obtener_sucursales_cde()
+    usuarios, _ = database.admin_get_lista_usuarios()
+    return sucursales, usuarios
 @st.cache_data(ttl=600)
 def cargar_data_filtros_avanzados():
     categorias, _ = database.admin_get_todas_categorias()
@@ -46,11 +37,7 @@ def cargar_data_filtros_avanzados():
     return categorias, socios, metodos
 
 # --- PESTAÑAS PRINCIPALES ---
-tab_op, tab_cde, tab_agg = st.tabs([
-    "📊 Reportes de Cierres (Log)", 
-    "🏦 Reportes CDE (Log)",
-    "📈 Reportes Agregados (Suma)"
-])
+tab_op, tab_cde, tab_agg = st.tabs(["📊 Cierres (Log)", "🏦 CDE (Log)", "📈 Agregados (Suma)"])
 
 # ==========================================================
 # PESTAÑA 1: REPORTE OPERATIVO (Tu reporte original)
@@ -370,123 +357,78 @@ with tab_cde:
 with tab_agg:
     st.header("Reportes Agregados con Filtros Avanzados")
     
-    # --- Cargar datos para los dropdowns de filtros ---
-    sucursales_db_agg, usuarios_db_agg = cargar_filtros_data_operativo()
-    categorias_db_agg, socios_db_agg, metodos_db_agg = cargar_data_filtros_avanzados()
+    sucursales_db, usuarios_db = cargar_filtros_data_operativo()
+    categorias_db, socios_db, metodos_db = cargar_data_filtros_avanzados()
 
-    # --- Selector de Tipo de Reporte ---
-    tipo_reporte = st.radio(
-        "Seleccione el tipo de reporte:",
-        ["Gastos por Categoría", "Ingresos por Socio", "Totales por Método de Pago"], # <-- NUEVA OPCIÓN
-        horizontal=True,
-        key="tipo_reporte_agg"
-    )
+    tipo_reporte = st.radio("Seleccione el tipo de reporte:",
+        ["Gastos por Categoría", "Ingresos por Socio", "Totales por Método de Pago"],
+        horizontal=True)
 
     st.subheader("Filtros")
-    
-    # --- Filtros Comunes ---
     col_f1, col_f2, col_f3 = st.columns(3)
-    fecha_ini_agg = col_f1.date_input("Fecha Desde (Opcional)", value=None, key="agg_fecha_ini")
-    fecha_fin_agg = col_f2.date_input("Fecha Hasta (Opcional)", value=None, key="agg_fecha_fin")
+    fecha_ini_agg = col_f1.date_input("Fecha Desde", value=None, key="agg_fi")
+    fecha_fin_agg = col_f2.date_input("Fecha Hasta", value=None, key="agg_ff")
+    op_suc = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db}}
+    sel_suc_id = op_suc[col_f3.selectbox("Sucursal", options=op_suc.keys(), key="agg_s")]
     
-    opciones_sucursal_agg = {"TODAS": None}
-    for s in sucursales_db_agg: opciones_sucursal_agg[s['sucursal']] = s['id'] 
-    sel_sucursal_nombre_agg = col_f3.selectbox("Filtrar por Sucursal", options=opciones_sucursal_agg.keys(), key="agg_sucursal")
-    sucursal_id_filtrar_agg = opciones_sucursal_agg[sel_sucursal_nombre_agg]
+    str_ini = fecha_ini_agg.strftime('%Y-%m-%d') if fecha_ini_agg else None
+    str_fin = fecha_fin_agg.strftime('%Y-%m-%d') if fecha_fin_agg else None
 
-    # --- Filtros Específicos y Lógica de Reporte ---
-    
     if tipo_reporte == "Gastos por Categoría":
         col_g1, col_g2 = st.columns(2)
-        opciones_categoria = {"TODAS": None}
-        for c in categorias_db_agg: opciones_categoria[c['nombre']] = c['id']
-        sel_cat_nombre = col_g1.selectbox("Filtrar por Categoría", options=opciones_categoria.keys())
-        categoria_id_filtrar = opciones_categoria[sel_cat_nombre]
-
-        opciones_usuario = {"TODOS": None}
-        for u in usuarios_db_agg: opciones_usuario[u['nombre']] = u['id']
-        sel_user_nombre = col_g2.selectbox("Filtrar por Usuario", options=opciones_usuario.keys())
-        usuario_id_filtrar = opciones_usuario[sel_user_nombre]
+        op_cat = {"TODAS": None, **{c['nombre']: c['id'] for c in categorias_db}}
+        sel_cat_id = op_cat[col_g1.selectbox("Categoría", options=op_cat.keys())]
+        op_user = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db}}
+        sel_user_id = op_user[col_g2.selectbox("Usuario", options=op_user.keys())]
 
         if st.button("Generar Reporte de Gastos", type="primary"):
-            str_ini = fecha_ini_agg.strftime('%Y-%m-%d') if fecha_ini_agg else None
-            str_fin = fecha_fin_agg.strftime('%Y-%m-%d') if fecha_fin_agg else None
-            with st.spinner("Generando reporte..."):
+            with st.spinner("Generando..."):
                 data, err = database.admin_reporte_gastos_agregados(
-                    fecha_inicio=str_ini, fecha_fin=str_fin, sucursal_id=sucursal_id_filtrar_agg,
-                    categoria_id=categoria_id_filtrar, usuario_id=usuario_id_filtrar
-                )
-            st.subheader("Resultados: Gastos por Categoría")
+                    str_ini, str_fin, sel_suc_id, sel_cat_id, sel_user_id)
             if err: st.error(f"Error: {err}")
-            elif not data: st.warning("No se encontraron gastos para los filtros seleccionados.")
+            elif not data: st.warning("Sin resultados.")
             else:
-                df = pd.DataFrame(data)
-                df['total_gastado'] = df['total_gastado'].astype(float)
-                st.metric("Total General Gastado en el Periodo", f"${df['total_gastado'].sum():,.2f}") # <-- TOTAL MOVIDO ARRIBA
+                df = pd.DataFrame(data).astype({'total_gastado': float})
+                st.metric("Total General Gastado", f"${df['total_gastado'].sum():,.2f}")
                 st.dataframe(df.style.format({"total_gastado": "${:,.2f}"}), width='stretch')
                 st.bar_chart(df, x='categoria_nombre', y='total_gastado')
 
     elif tipo_reporte == "Ingresos por Socio":
         col_i1, col_i2 = st.columns(2)
-        opciones_socio = {"TODOS": None}
-        for s in socios_db_agg: opciones_socio[s['nombre']] = s['id']
-        sel_socio_nombre = col_i1.selectbox("Filtrar por Socio", options=opciones_socio.keys())
-        socio_id_filtrar = opciones_socio[sel_socio_nombre]
-
-        opciones_metodo = {"TODOS": None}
-        for m in metodos_db_agg: opciones_metodo[m['nombre']] = m['nombre']
-        sel_metodo_nombre = col_i2.selectbox("Filtrar por Método de Pago", options=opciones_metodo.keys())
-        metodo_filtrar = opciones_metodo[sel_metodo_nombre]
+        op_socio = {"TODOS": None, **{s['nombre']: s['id'] for s in socios_db}}
+        sel_socio_id = op_socio[col_i1.selectbox("Socio", options=op_socio.keys())]
+        op_metodo = {"TODOS": None, **{m['nombre']: m['nombre'] for m in metodos_db}}
+        sel_metodo = op_metodo[col_i2.selectbox("Método de Pago", options=op_metodo.keys())]
 
         if st.button("Generar Reporte de Ingresos", type="primary"):
-            str_ini = fecha_ini_agg.strftime('%Y-%m-%d') if fecha_ini_agg else None
-            str_fin = fecha_fin_agg.strftime('%Y-%m-%d') if fecha_fin_agg else None
-            with st.spinner("Generando reporte..."):
+            with st.spinner("Generando..."):
                 data, err = database.admin_reporte_ingresos_socios(
-                    fecha_inicio=str_ini, fecha_fin=str_fin, sucursal_id=sucursal_id_filtrar_agg,
-                    socio_id=socio_id_filtrar, metodo_pago=metodo_filtrar
-                )
-            st.subheader("Resultados: Ingresos por Socio y Método")
+                    str_ini, str_fin, sel_suc_id, sel_socio_id, sel_metodo)
             if err: st.error(f"Error: {err}")
-            elif not data: st.warning("No se encontraron ingresos para los filtros seleccionados.")
+            elif not data: st.warning("Sin resultados.")
             else:
-                df = pd.DataFrame(data)
-                df['total_ingresado'] = df['total_ingresado'].astype(float)
-                st.metric("Total General Ingresado por Socios en el Periodo", f"${df['total_ingresado'].sum():,.2f}") # <-- TOTAL MOVIDO ARRIBA
-                try:
-                    df_pivot = df.pivot_table(index='socio_nombre', columns='metodo_pago', values='total_ingresado', aggfunc='sum', fill_value=0, margins=True, margins_name="TOTAL POR MÉTODO")
-                    df_pivot['TOTAL POR SOCIO'] = df_pivot.sum(axis=1)
-                    st.dataframe(df_pivot.style.format("${:,.2f}"), width='stretch')
-                except Exception:
-                    st.dataframe(df.style.format({"total_ingresado": "${:,.2f}"}), width='stretch')
+                df = pd.DataFrame(data).astype({'total_ingresado': float})
+                st.metric("Total General Ingresado", f"${df['total_ingresado'].sum():,.2f}")
+                st.dataframe(df.style.format({"total_ingresado": "${:,.2f}"}), width='stretch')
 
     elif tipo_reporte == "Totales por Método de Pago":
-        if st.button("Generar Reporte por Método de Pago", type="primary"):
-            str_ini = fecha_ini_agg.strftime('%Y-%m-%d') if fecha_ini_agg else None
-            str_fin = fecha_fin_agg.strftime('%Y-%m-%d') if fecha_fin_agg else None
-            with st.spinner("Generando reporte..."):
-                data, err = database.admin_reporte_metodo_pago(
-                    fecha_inicio=str_ini, fecha_fin=str_fin, sucursal_id=sucursal_id_filtrar_agg
-                )
-            st.subheader("Resultados: Movimientos por Método de Pago")
-            if err: st.error(f"Error: {err}")
-            elif not data: st.warning("No se encontraron movimientos para los filtros seleccionados.")
-            else:
-                df = pd.DataFrame(data)
-                df = df.astype({'total_ingresos': float, 'total_egresos': float, 'neto': float})
-                
-                # Calcular y mostrar totales generales arriba
-                total_ingresos_general = df['total_ingresos'].sum()
-                total_egresos_general = df['total_egresos'].sum()
-                neto_general = total_ingresos_general - total_egresos_general
-                
-                col_m1, col_m2, col_m3 = st.columns(3)
-                col_m1.metric("Total Ingresos", f"${total_ingresos_general:,.2f}")
-                col_m2.metric("Total Egresos", f"${total_egresos_general:,.2f}")
-                col_m3.metric("Neto General del Periodo", f"${neto_general:,.2f}")
+        st.caption("Filtros adicionales para este reporte:")
+        col_m1, col_m2 = st.columns(2)
+        op_socio_m = {"TODOS": None, **{s['nombre']: s['id'] for s in socios_db}}
+        sel_socio_id_m = op_socio_m[col_m1.selectbox("Socio (Opcional)", options=op_socio_m.keys())]
+        op_metodo_m = {"TODOS": None, **{m['nombre']: m['nombre'] for m in metodos_db}}
+        sel_metodo_m = op_metodo_m[col_m2.selectbox("Método de Pago (Opcional)", options=op_metodo_m.keys())]
 
-                st.dataframe(df.style.format({
-                    "total_ingresos": "${:,.2f}", 
-                    "total_egresos": "${:,.2f}", 
-                    "neto": "${:,.2f}"
-                }), width='stretch')
+        if st.button("Generar Reporte por Método de Pago", type="primary"):
+            with st.spinner("Generando..."):
+                data, err = database.admin_reporte_metodo_pago(
+                    str_ini, str_fin, sel_suc_id, sel_socio_id_m, sel_metodo_m)
+            if err: st.error(f"Error: {err}")
+            elif not data: st.warning("Sin resultados.")
+            else:
+                df = pd.DataFrame(data).astype({'total_ingresos': float, 'total_egresos': float, 'neto': float})
+                col_t1, col_t2, col_t3 = st.columns(3)
+                col_t1.metric("Total Ingresos", f"${df['total_ingresos'].sum():,.2f}")
+                col_t2.metric("Total Egresos", f"${df['total_egresos'].sum():,.2f}")
+                col_t3.metric("Neto General", f"${df['neto'].sum():,.2f}")
+                st.dataframe(df.style.format({"total_ingresos": "${:,.2f}", "total_egresos": "${:,.2f}", "neto": "${:,.2f}"}), width='stretch')
