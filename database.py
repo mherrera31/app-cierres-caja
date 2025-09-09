@@ -840,30 +840,34 @@ def admin_buscar_cierres_cde_filtrados(fecha_inicio, fecha_fin, sucursal_id=None
 # --- FUNCIONES DE REPORTES AGREGADOS ---
 
 def admin_reporte_gastos_agregados(fecha_inicio=None, fecha_fin=None, sucursal_id=None, categoria_id=None, usuario_id=None):
-    """
-    Llama a la función SQL avanzada 'reporte_gastos_agregados'.
-    Todos los filtros son opcionales.
-    """
     try:
         params = {
-            'fecha_inicio': fecha_inicio,
-            'fecha_fin': fecha_fin,
-            'p_sucursal_id': sucursal_id,
-            'p_categoria_id': categoria_id,
+            'fecha_inicio': fecha_inicio, 'fecha_fin': fecha_fin,
+            'p_sucursal_id': sucursal_id, 'p_categoria_id': categoria_id,
             'p_usuario_id': usuario_id
         }
-        # Filtramos los parámetros que son None para no enviarlos
         params = {k: v for k, v in params.items() if v is not None}
-            
         response = supabase.rpc('reporte_gastos_agregados', params).execute()
         return response.data, None
     except Exception as e:
         return None, f"Error al ejecutar reporte de gastos: {e}"
 
 def admin_reporte_ingresos_socios(fecha_inicio=None, fecha_fin=None, sucursal_id=None, socio_id=None, metodo_pago=None):
+    try:
+        params = {
+            'fecha_inicio': fecha_inicio, 'fecha_fin': fecha_fin,
+            'p_sucursal_id': sucursal_id, 'p_socio_id': socio_id,
+            'p_metodo_pago': metodo_pago
+        }
+        params = {k: v for k, v in params.items() if v is not None}
+        response = supabase.rpc('reporte_ingresos_socios', params).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al ejecutar reporte de ingresos por socio: {e}"
+
+def admin_reporte_metodo_pago(fecha_inicio=None, fecha_fin=None, sucursal_id=None, socio_id=None, metodo_pago=None):
     """
-    Llama a la función SQL avanzada 'reporte_ingresos_socios'.
-    Todos los filtros son opcionales.
+    (NUEVA VERSIÓN) Llama a la función SQL avanzada 'reporte_movimientos_por_metodo'.
     """
     try:
         params = {
@@ -873,27 +877,7 @@ def admin_reporte_ingresos_socios(fecha_inicio=None, fecha_fin=None, sucursal_id
             'p_socio_id': socio_id,
             'p_metodo_pago': metodo_pago
         }
-        # Filtramos los parámetros que son None para no enviarlos
         params = {k: v for k, v in params.items() if v is not None}
-
-        response = supabase.rpc('reporte_ingresos_socios', params).execute()
-        return response.data, None
-    except Exception as e:
-        return None, f"Error al ejecutar reporte de ingresos por socio: {e}"
-
-def admin_reporte_metodo_pago(fecha_inicio=None, fecha_fin=None, sucursal_id=None):
-    """
-    Llama a la función SQL 'reporte_movimientos_por_metodo' para obtener un
-    resumen de ingresos y egresos por cada método de pago.
-    """
-    try:
-        params = {
-            'fecha_inicio': fecha_inicio,
-            'fecha_fin': fecha_fin,
-            'p_sucursal_id': sucursal_id
-        }
-        params = {k: v for k, v in params.items() if v is not None}
-            
         response = supabase.rpc('reporte_movimientos_por_metodo', params).execute()
         return response.data, None
     except Exception as e:
