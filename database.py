@@ -837,48 +837,24 @@ def admin_buscar_cierres_cde_filtrados(fecha_inicio, fecha_fin, sucursal_id=None
     except Exception as e:
         return [], f"Error al buscar cierres CDE filtrados: {e}"
 
-# --- FUNCIONES DE REPORTES AGREGADOS ---
+# --- FUNCIONES DE REPORTES AGREGADOS (Versión Final - Lee desde JSON) ---
 
-def admin_reporte_gastos_agregados(fecha_inicio=None, fecha_fin=None, sucursal_id=None, categoria_id=None, usuario_id=None):
-    try:
-        params = {
-            'fecha_inicio': fecha_inicio, 'fecha_fin': fecha_fin,
-            'p_sucursal_id': sucursal_id, 'p_categoria_id': categoria_id,
-            'p_usuario_id': usuario_id
-        }
-        params = {k: v for k, v in params.items() if v is not None}
-        response = supabase.rpc('reporte_gastos_agregados', params).execute()
-        return response.data, None
-    except Exception as e:
-        return None, f"Error al ejecutar reporte de gastos: {e}"
-
-def admin_reporte_ingresos_socios(fecha_inicio=None, fecha_fin=None, sucursal_id=None, socio_id=None, metodo_pago=None):
-    try:
-        params = {
-            'fecha_inicio': fecha_inicio, 'fecha_fin': fecha_fin,
-            'p_sucursal_id': sucursal_id, 'p_socio_id': socio_id,
-            'p_metodo_pago': metodo_pago
-        }
-        params = {k: v for k, v in params.items() if v is not None}
-        response = supabase.rpc('reporte_ingresos_socios', params).execute()
-        return response.data, None
-    except Exception as e:
-        return None, f"Error al ejecutar reporte de ingresos por socio: {e}"
-
-def admin_reporte_metodo_pago(fecha_inicio=None, fecha_fin=None, sucursal_id=None, socio_id=None, metodo_pago=None):
+def admin_reporte_ingresos_json(fecha_inicio=None, fecha_fin=None, sucursal_id=None, usuario_id=None, metodo_pago=None):
     """
-    (NUEVA VERSIÓN) Llama a la función SQL avanzada 'reporte_movimientos_por_metodo'.
+    Llama a la función SQL 'reporte_ingresos_desde_json' para obtener los ingresos
+    directamente desde el JSON 'verificacion_pagos_detalle' de los cierres.
     """
     try:
         params = {
             'fecha_inicio': fecha_inicio,
             'fecha_fin': fecha_fin,
             'p_sucursal_id': sucursal_id,
-            'p_socio_id': socio_id,
+            'p_usuario_id': usuario_id,
             'p_metodo_pago': metodo_pago
         }
         params = {k: v for k, v in params.items() if v is not None}
-        response = supabase.rpc('reporte_movimientos_por_metodo', params).execute()
+            
+        response = supabase.rpc('reporte_ingresos_desde_json', params).execute()
         return response.data, None
     except Exception as e:
-        return None, f"Error al ejecutar reporte por método de pago: {e}"
+        return None, f"Error al ejecutar reporte de ingresos desde JSON: {e}"
