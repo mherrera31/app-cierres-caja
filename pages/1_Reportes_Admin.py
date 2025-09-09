@@ -34,10 +34,10 @@ def cargar_filtros_data_operativo():
     return sucursales_data, usuarios_data, metodos_pago
 
 # --- PESTAÑAS PRINCIPALES ---
-tab_log_op, tab_log_cde, tab_analisis = st.tabs([
+tab_op, tab_cde, tab_agg = st.tabs([
     "📊 Cierres Operativos (Log)", 
     "🏦 Cierres CDE (Log)",
-    "📈 Análisis de Ingresos" # <-- NUEVA PESTAÑA
+    "📈 Análisis de Ingresos"
 ])
 
 # ==========================================================
