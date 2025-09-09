@@ -839,36 +839,42 @@ def admin_buscar_cierres_cde_filtrados(fecha_inicio, fecha_fin, sucursal_id=None
 
 # --- FUNCIONES DE REPORTES AGREGADOS ---
 
-def admin_reporte_gastos_agregados(fecha_inicio, fecha_fin, sucursal_id=None):
+def admin_reporte_gastos_agregados(fecha_inicio=None, fecha_fin=None, sucursal_id=None, categoria_id=None, usuario_id=None):
     """
-    Llama a la función SQL 'reporte_gastos_agregados' para obtener los gastos
-    sumarizados por categoría en un rango de fechas.
+    Llama a la función SQL avanzada 'reporte_gastos_agregados'.
+    Todos los filtros son opcionales.
     """
     try:
         params = {
             'fecha_inicio': fecha_inicio,
-            'fecha_fin': fecha_fin
+            'fecha_fin': fecha_fin,
+            'p_sucursal_id': sucursal_id,
+            'p_categoria_id': categoria_id,
+            'p_usuario_id': usuario_id
         }
-        if sucursal_id:
-            params['p_sucursal_id'] = sucursal_id
+        # Filtramos los parámetros que son None para no enviarlos
+        params = {k: v for k, v in params.items() if v is not None}
             
         response = supabase.rpc('reporte_gastos_agregados', params).execute()
         return response.data, None
     except Exception as e:
         return None, f"Error al ejecutar reporte de gastos: {e}"
 
-def admin_reporte_ingresos_socios(fecha_inicio, fecha_fin, sucursal_id=None):
+def admin_reporte_ingresos_socios(fecha_inicio=None, fecha_fin=None, sucursal_id=None, socio_id=None, metodo_pago=None):
     """
-    Llama a la función SQL 'reporte_ingresos_socios' para obtener los ingresos
-    sumarizados por socio y método de pago en un rango de fechas.
+    Llama a la función SQL avanzada 'reporte_ingresos_socios'.
+    Todos los filtros son opcionales.
     """
     try:
         params = {
             'fecha_inicio': fecha_inicio,
-            'fecha_fin': fecha_fin
+            'fecha_fin': fecha_fin,
+            'p_sucursal_id': sucursal_id,
+            'p_socio_id': socio_id,
+            'p_metodo_pago': metodo_pago
         }
-        if sucursal_id:
-            params['p_sucursal_id'] = sucursal_id
+        # Filtramos los parámetros que son None para no enviarlos
+        params = {k: v for k, v in params.items() if v is not None}
 
         response = supabase.rpc('reporte_ingresos_socios', params).execute()
         return response.data, None
