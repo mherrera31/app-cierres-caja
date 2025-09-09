@@ -114,7 +114,7 @@ with tab_op:
     
     # --- Filtros (Operativo) ---
     st.header("Log de Cierres de Caja Operativos")
-    sucursales_db_op, usuarios_db_op = cargar_filtros_data_basicos() # <-- LLAMADA CORREGIDA
+    sucursales_db_op, usuarios_db_op, _, _ = cargar_filtros_data_basicos() # <-- LLAMADA CORREGIDA
     opciones_sucursal_op = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db_op}}
     opciones_usuario_op = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db_op}}
 
