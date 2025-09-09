@@ -880,3 +880,21 @@ def admin_reporte_ingresos_socios(fecha_inicio=None, fecha_fin=None, sucursal_id
         return response.data, None
     except Exception as e:
         return None, f"Error al ejecutar reporte de ingresos por socio: {e}"
+
+def admin_reporte_metodo_pago(fecha_inicio=None, fecha_fin=None, sucursal_id=None):
+    """
+    Llama a la función SQL 'reporte_movimientos_por_metodo' para obtener un
+    resumen de ingresos y egresos por cada método de pago.
+    """
+    try:
+        params = {
+            'fecha_inicio': fecha_inicio,
+            'fecha_fin': fecha_fin,
+            'p_sucursal_id': sucursal_id
+        }
+        params = {k: v for k, v in params.items() if v is not None}
+            
+        response = supabase.rpc('reporte_movimientos_por_metodo', params).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al ejecutar reporte por método de pago: {e}"
