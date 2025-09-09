@@ -1,5 +1,5 @@
-# pages/1_Reportes_Admin.py
-# VERSIÓN ACTUALIZADA CON PESTAÑAS PARA REPORTES OPERATIVOS Y CDE
+            # pages/1_Reportes_Admin.py
+# VERSIÓN CONSOLIDADA Y CORREGIDA (Arregla IndentationError y Deprecation Warnings)
 
 import streamlit as st
 import sys
@@ -7,6 +7,7 @@ import os
 import database
 import pandas as pd
 from datetime import datetime
+from decimal import Decimal # Importar Decimal para el reporte CDE
 
 # --- BLOQUE DE CORRECCIÓN DE IMPORTPATH (VITAL) ---
 script_dir = os.path.dirname(__file__)
@@ -66,22 +67,13 @@ with tab_op:
             df = pd.DataFrame.from_dict(detalle, orient='index').reset_index()
             column_names = ["Denominación", "Cantidad", "Subtotal"]
             df.columns = column_names[:len(df.columns)]
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            # CORREGIDO: Advertencia de Deprecación
+            st.dataframe(df, width='stretch', hide_index=True)
         except Exception as e:
             st.json(detalle)
             st.error(f"Error al renderizar dataframe: {e}")
             
         st.metric(label=f"TOTAL CONTADO ({titulo})", value=f"${float(total):,.2f}")
-
-    def comando_revisar_abierto(cierre_objeto, nombre_sucursal):
-        """
-        Guarda el objeto del cierre seleccionado en la sesión y 
-        prepara al admin para "saltar" a ese cierre en la otra página.
-        """
-        st.session_state['admin_review_cierre_obj'] = cierre_objeto
-        st.session_state['admin_review_sucursal_nombre'] = nombre_sucursal
-        st.success(f"Modo Revisión (Admin) activado para: {nombre_sucursal}. Por favor, navega a la página 'Cierre de Caja' desde la barra lateral.")
-        st.warning("La página de Cierre de Caja se cargará automáticamente con esta sesión abierta.")
 
     def op_mostrar_reporte_verificacion(data_dict):
         st.subheader("Reporte de Verificación de Pagos")
@@ -140,10 +132,10 @@ with tab_op:
                     "Notas": gasto.get('notas')
                 })
             
-            st.dataframe(df_data, use_container_width=True)
+            # CORREGIDO: Advertencia de Deprecación
+            st.dataframe(df_data, width='stretch')
             st.metric("TOTAL GASTOS", f"${total_gastos:,.2f}")
     
-    # (Tu función de reabrir cierre operativo original)
     def comando_reabrir_operativo(cierre_id):
         _, error = database.reabrir_cierre(cierre_id)
         if error:
@@ -152,6 +144,17 @@ with tab_op:
             st.success(f"¡Cierre {cierre_id} reabierto con éxito!")
             cargar_filtros_data_operativo.clear()
             st.rerun() 
+
+    # --- NUEVA FUNCIÓN (AÑADIDA Y CORREGIDA INDENTACIÓN) ---
+    def comando_revisar_abierto(cierre_objeto, nombre_sucursal):
+        """
+        Guarda el objeto del cierre seleccionado en la sesión y 
+        prepara al admin para "saltar" a ese cierre en la otra página.
+        """
+        st.session_state['admin_review_cierre_obj'] = cierre_objeto
+        st.session_state['admin_review_sucursal_nombre'] = nombre_sucursal
+        st.success(f"Modo Revisión (Admin) activado para: {nombre_sucursal}. Por favor, navega a la página 'Cierre de Caja' desde la barra lateral.")
+        st.warning("La página de Cierre de Caja se cargará automáticamente con esta sesión abierta.")
 
     # --- Filtros (Operativo) ---
     sucursales_db_op, usuarios_db_op = cargar_filtros_data_operativo()
@@ -200,7 +203,9 @@ with tab_op:
                     tab_resumen, tab_inicial, tab_final, tab_verif, tab_gastos = st.tabs([
                         "Resumen", "Caja Inicial", "Caja Final", "Verificación", "Gastos"
                     ])
-                   with tab_resumen:
+                    
+                    # --- BLOQUE LÓGICO MODIFICADO (CORREGIDO INDENTACIÓN) ---
+                    with tab_resumen:
                         st.subheader("Resumen del Cierre")
                         if cierre.get('estado') == 'CERRADO':
                             st.button(
@@ -208,7 +213,6 @@ with tab_op:
                                 on_click=comando_reabrir_operativo, args=(cierre['id'],),
                                 type="secondary"
                             )
-                        # --- INICIO DEL NUEVO BLOQUE ---
                         elif cierre.get('estado') == 'ABIERTO':
                             st.warning("Este cierre aún está ABIERTO.")
                             st.button(
@@ -217,14 +221,14 @@ with tab_op:
                                 args=(cierre, suc_nombre,), # Pasamos el objeto cierre COMPLETO
                                 type="primary"
                             )
-                        # --- FIN DEL NUEVO BLOQUE ---
-                       
+
                         st.markdown(f"**Discrepancia Inicial Detectada:** {'Sí' if cierre['discrepancia_saldo_inicial'] else 'No'}")
                         col_r1, col_r2, col_r3, col_r4 = st.columns(4)
                         col_r1.metric("Saldo Inicial (Contado)", f"${float(cierre.get('saldo_inicial_efectivo') or 0):,.2f}")
                         col_r2.metric("Saldo Final (Contado)", f"${float(cierre.get('saldo_final_efectivo') or 0):,.2f}")
                         col_r3.metric("Total a Depositar", f"${float(cierre.get('total_a_depositar') or 0):,.2f}")
                         col_r4.metric("Saldo Día Siguiente", f"${float(cierre.get('saldo_para_siguiente_dia') or 0):,.2f}")
+
                     with tab_inicial:
                         op_mostrar_reporte_denominaciones("Detalle de Caja Inicial", cierre.get('saldo_inicial_detalle'))
                     with tab_final:
@@ -258,7 +262,8 @@ with tab_cde:
                 try:
                     df = pd.DataFrame.from_dict(detalle_dict.get('detalle', {}), orient='index').reset_index()
                     df.columns = ["Denominación", "Cantidad", "Subtotal"]
-                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    # CORREGIDO: Advertencia de Deprecación
+                    st.dataframe(df, width='stretch', hide_index=True)
                 except Exception:
                     st.json(detalle_dict.get('detalle'))
 
@@ -268,17 +273,26 @@ with tab_cde:
             st.info("No se guardaron verificaciones manuales para otros métodos.")
             return
 
-        for metodo, total_manual in data_dict.items():
-            st.markdown(f"**Método: {metodo}**")
-            total_sistema = totales_sistema_dia.get(metodo, 0.0) # Obtenemos el total de sistema recalculado
-            discrepancia = Decimal(str(total_manual)) - Decimal(str(total_sistema))
-            match_ok = abs(discrepancia) < Decimal('0.01')
+        for metodo, data_guardada in data_dict.items():
+            # Nueva estructura de JSON: Saltamos los huérfanos/info en este reporte detallado
+            if isinstance(data_guardada, dict):
+                
+                st.markdown(f"**Método: {metodo}**")
+                total_manual = data_guardada.get('total_manual', 0.0)
+                total_sistema = data_guardada.get('total_sistema', 0.0) # Usamos el total guardado en el JSON
+                match_ok = data_guardada.get('match_ok', False)
+                url_foto = data_guardada.get('url_foto', None)
+                discrepancia = Decimal(str(total_manual)) - Decimal(str(total_sistema))
             
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Sistema (Pagos)", f"${float(total_sistema):,.2f}")
-            col2.metric("Total Reportado (Manual)", f"${float(total_manual):,.2f}")
-            col3.metric("Discrepancia", f"${float(discrepancia):,.2f}", delta="OK" if match_ok else "FALLO", delta_color="normal" if match_ok else "inverse")
-            st.divider()
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Sistema (Pagos)", f"${float(total_sistema):,.2f}")
+                col2.metric("Total Reportado (Manual)", f"${float(total_manual):,.2f}")
+                col3.metric("Discrepancia", f"${float(discrepancia):,.2f}", delta="OK" if match_ok else "FALLO", delta_color="normal" if match_ok else "inverse")
+                
+                if url_foto:
+                    st.markdown(f"**[Ver Foto Adjunta]({url_foto})**", unsafe_allow_html=True)
+                
+                st.divider()
 
 
     # --- Filtros (CDE) ---
@@ -300,7 +314,7 @@ with tab_cde:
     sucursal_id_filtrar_cde = opciones_sucursal_cde[sel_sucursal_nombre_cde]
     usuario_id_filtrar_cde = opciones_usuario_cde[sel_usuario_nombre_cde]
 
-    if st.button("Buscar Cierres CDE", type="primary"):
+    if st.button("Buscar Cierres CDE", type="primary", key="btn_buscar_cde"):
         str_ini_cde = fecha_ini_cde.strftime("%Y-%m-%d") if fecha_ini_cde else None
         str_fin_cde = fecha_fin_cde.strftime("%Y-%m-%d") if fecha_fin_cde else (datetime.now().strftime("%Y-%m-%d") if fecha_ini_cde else None)
         
@@ -329,27 +343,20 @@ with tab_cde:
                     st.subheader("Resumen de Verificación CDE")
                     st.markdown(f"**Cierre Forzado por Admin:** {'Sí' if cierre.get('discrepancia') else 'No'}")
                     
-                    # Para mostrar los métodos, DEBEMOS recalcular los totales del sistema para ese día/sucursal
-                    # (No los guardamos en el cierre, para que el reporte siempre sea contra los datos 'en vivo' de la tabla 'pagos')
-                    totales_sistema_metodos_dia, total_efectivo_sistema_dia, err_ts = database.calcular_totales_pagos_dia_sucursal(
-                        cierre['fecha_operacion'], suc_nombre
+                    # (No recalculamos los totales en vivo aquí, solo mostramos los datos como se guardaron)
+                    # 1. Mostrar reporte de efectivo
+                    cde_mostrar_reporte_efectivo(
+                        "Reporte de Efectivo",
+                        cierre.get('detalle_conteo_efectivo'),
+                        cierre.get('total_efectivo_sistema', 0), # Usamos el total guardado
+                        cierre.get('total_efectivo_contado', 0)
                     )
-
-                    if err_ts:
-                        st.error(f"No se pudieron recalcular los totales del sistema para este día: {err_ts}")
-                    else:
-                        # 1. Mostrar reporte de efectivo
-                        cde_mostrar_reporte_efectivo(
-                            "Reporte de Efectivo",
-                            cierre.get('detalle_conteo_efectivo'),
-                            total_efectivo_sistema_dia, # Usamos el total recalculado
-                            cierre.get('total_efectivo_contado', 0)
-                        )
-                        
-                        st.divider()
-                        
-                        # 2. Mostrar reporte de otros métodos
-                        cde_mostrar_verificacion_metodos(
-                            cierre.get('verificacion_metodos'),
-                            totales_sistema_metodos_dia # Pasamos el dict de totales recalculados
-                        )
+                    
+                    st.divider()
+                    
+                    # 2. Mostrar reporte de otros métodos
+                    # Pasamos un dict vacío para los totales en vivo ya que solo queremos mostrar los datos guardados
+                    cde_mostrar_verificacion_metodos(
+                        cierre.get('verificacion_metodos'),
+                        {} 
+                    )
