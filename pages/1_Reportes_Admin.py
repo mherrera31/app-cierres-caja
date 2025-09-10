@@ -1,4 +1,4 @@
-            # pages/1_Reportes_Admin.py
+# pages/1_Reportes_Admin.py
 # VERSIÓN CONSOLIDADA Y CORREGIDA (Arregla IndentationError y Deprecation Warnings)
 
 import streamlit as st
@@ -141,8 +141,10 @@ with tab_op:
             solo_discrepancia=solo_disc_op
         )
         
-        if error_op: st.error(f"Error de DB: {error_op}")
-        elif not cierres_op: st.warning("No se encontraron cierres operativos con esos filtros.")
+        if error_op: 
+            st.error(f"Error de DB: {error_op}")
+        elif not cierres_op: 
+            st.warning("No se encontraron cierres operativos con esos filtros.")
         else:
             for cierre in cierres_op:
                 user_nombre = cierre.get('perfiles', {}).get('nombre', 'N/A')
@@ -154,45 +156,45 @@ with tab_op:
                     with t_res:
                         st.subheader("Resumen del Cierre")
 
-                            # Extracción segura de los totales
+                        # Extracción segura de los totales
                         saldo_siguiente = float(cierre.get("saldo_para_siguiente_dia") or 0)
                         a_depositar = float(cierre.get("total_a_depositar") or 0)
 
-                            # Métodos de pago (Yappy, Tarjeta Crédito, Tarjeta Débito)
+                        # Métodos de pago (Yappy, Tarjeta Crédito, Tarjeta Débito)
                         pagos_detalle = cierre.get("verificacion_pagos_detalle")
-                            if pagos_detalle and isinstance(pagos_detalle, dict):
-                                totales = pagos_detalle.get("totales", {})
-                                total_yappy = float(totales.get("Yappy", 0))
-                                total_tarjeta_credito = float(totales.get("Tarjeta Crédito", 0))
-                                total_tarjeta_debito = float(totales.get("Tarjeta Débito", 0))
-                else:
-                    total_yappy = total_tarjeta_credito = total_tarjeta_debito = 0
+                        if pagos_detalle and isinstance(pagos_detalle, dict):
+                            totales = pagos_detalle.get("totales", {})
+                            total_yappy = float(totales.get("Yappy", 0))
+                            total_tarjeta_credito = float(totales.get("Tarjeta Crédito", 0))
+                            total_tarjeta_debito = float(totales.get("Tarjeta Débito", 0))
+                        else:
+                            total_yappy = total_tarjeta_credito = total_tarjeta_debito = 0
 
-                            # Gastos: intenta obtener el campo directo; si no, consulta la base y suma
+                        # Gastos: intenta obtener el campo directo; si no, consulta la base y suma
                         total_gastos = float(cierre.get("total_gastos", 0) or 0)
-                            if not total_gastos and cierre.get("id"):
-                                gastos_lista, _ = database.obtener_gastos_del_cierre(cierre["id"])
-                                total_gastos = sum(float(g["monto"]) for g in gastos_lista) if gastos_lista else 0
+                        if not total_gastos and cierre.get("id"):
+                            gastos_lista, _ = database.obtener_gastos_del_cierre(cierre["id"])
+                            total_gastos = sum(float(g["monto"]) for g in gastos_lista) if gastos_lista else 0
 
-                            # Efectivo final
-                                    total_efectivo = float(cierre.get("saldo_final_efectivo") or 0)
+                        # Efectivo final
+                        total_efectivo = float(cierre.get("saldo_final_efectivo") or 0)
 
-                            # Totales calculados
-                                    total_completo = total_efectivo + total_yappy + total_tarjeta_credito + total_tarjeta_debito
-                                    total_menos_gastos = total_completo - total_gastos
+                        # Totales calculados
+                        total_completo = total_efectivo + total_yappy + total_tarjeta_credito + total_tarjeta_debito
+                        total_menos_gastos = total_completo - total_gastos
 
-                            # Mostrar los totales organizados en columnas
-                                        col1, col2, col3, col4 = st.columns(4)
-                                        col1.metric("Saldo Siguiente", f"${saldo_siguiente:,.2f}")
-                                        col2.metric("A Depositar", f"${a_depositar:,.2f}")
-                                        col3.metric("Total de Yappy", f"${total_yappy:,.2f}")
-                                        col4.metric("Total Tarjeta Crédito", f"${total_tarjeta_credito:,.2f}")
+                        # Mostrar los totales organizados en columnas
+                        col1, col2, col3, col4 = st.columns(4)
+                        col1.metric("Saldo Siguiente", f"${saldo_siguiente:,.2f}")
+                        col2.metric("A Depositar", f"${a_depositar:,.2f}")
+                        col3.metric("Total de Yappy", f"${total_yappy:,.2f}")
+                        col4.metric("Total Tarjeta Crédito", f"${total_tarjeta_credito:,.2f}")
 
-                                        col5, col6, col7, col8 = st.columns(4)
-                                        col5.metric("Total Tarjeta Débito", f"${total_tarjeta_debito:,.2f}")
-                                        col6.metric("Total de Gastos", f"${total_gastos:,.2f}")
-                                        col7.metric("Total Completo", f"${total_completo:,.2f}")
-                                        col8.metric("Total menos Gastos", f"${total_menos_gastos:,.2f}")
+                        col5, col6, col7, col8 = st.columns(4)
+                        col5.metric("Total Tarjeta Débito", f"${total_tarjeta_debito:,.2f}")
+                        col6.metric("Total de Gastos", f"${total_gastos:,.2f}")
+                        col7.metric("Total Completo", f"${total_completo:,.2f}")
+                        col8.metric("Total menos Gastos", f"${total_menos_gastos:,.2f}")
 
 # ==========================================================
 # PESTAÑA 2: REPORTE CDE (NUEVO MÓDULO)
