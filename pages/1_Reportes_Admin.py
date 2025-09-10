@@ -346,4 +346,4 @@ with tab_analisis:
             df_grouped = df.groupby('metodo_pago')['total_sistema'].sum().sort_values(ascending=False)
             st.bar_chart(df_grouped)
 
-    st.info("**Nota Importante:** Este reporte no puede filtrar por Socio individual, ya que el resumen `verificacion_pagos_detalle
+    st.info("**Nota Importante:** Este reporte no puede filtrar por Socio individual, ya que el resumen `verificacion_pagos_detalle` guarda los totales de forma consolidada.")
