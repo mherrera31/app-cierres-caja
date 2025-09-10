@@ -1,5 +1,5 @@
 # pages/1_Reportes_Admin.py
-# VERSIÓN CONSOLIDADA Y CORREGIDA (Arregla IndentationError y Deprecation Warnings)
+# VERSIÓN CONSOLIDADA Y CORREGIDA (Incluye solo el consolidado en el resumen del cierre)
 
 import streamlit as st
 import sys
@@ -8,6 +8,7 @@ import database
 import pandas as pd
 from datetime import datetime
 from decimal import Decimal
+import json
 
 # --- BLOQUE DE CORRECCIÓN DE IMPORTPATH ---
 script_dir = os.path.dirname(__file__)
@@ -160,16 +161,6 @@ with tab_op:
                         saldo_siguiente = float(cierre.get("saldo_para_siguiente_dia") or 0)
                         a_depositar = float(cierre.get("total_a_depositar") or 0)
 
-                        # Métodos de pago (Yappy, Tarjeta Crédito, Tarjeta Débito)
-                        pagos_detalle = cierre.get("verificacion_pagos_detalle")
-                        if pagos_detalle and isinstance(pagos_detalle, dict):
-                            totales = pagos_detalle.get("totales", {})
-                            total_yappy = float(totales.get("Yappy", 0))
-                            total_tarjeta_credito = float(totales.get("Tarjeta Crédito", 0))
-                            total_tarjeta_debito = float(totales.get("Tarjeta Débito", 0))
-                        else:
-                            total_yappy = total_tarjeta_credito = total_tarjeta_debito = 0
-
                         # Gastos: intenta obtener el campo directo; si no, consulta la base y suma
                         total_gastos = float(cierre.get("total_gastos", 0) or 0)
                         if not total_gastos and cierre.get("id"):
@@ -179,22 +170,36 @@ with tab_op:
                         # Efectivo final
                         total_efectivo = float(cierre.get("saldo_final_efectivo") or 0)
 
-                        # Totales calculados
-                        total_completo = total_efectivo + total_yappy + total_tarjeta_credito + total_tarjeta_debito
-                        total_menos_gastos = total_completo - total_gastos
-
                         # Mostrar los totales organizados en columnas
-                        col1, col2, col3, col4 = st.columns(4)
+                        col1, col2 = st.columns(2)
                         col1.metric("Saldo Siguiente", f"${saldo_siguiente:,.2f}")
                         col2.metric("A Depositar", f"${a_depositar:,.2f}")
-                        col3.metric("Total de Yappy", f"${total_yappy:,.2f}")
-                        col4.metric("Total Tarjeta Crédito", f"${total_tarjeta_credito:,.2f}")
 
-                        col5, col6, col7, col8 = st.columns(4)
-                        col5.metric("Total Tarjeta Débito", f"${total_tarjeta_debito:,.2f}")
-                        col6.metric("Total de Gastos", f"${total_gastos:,.2f}")
-                        col7.metric("Total Completo", f"${total_completo:,.2f}")
-                        col8.metric("Total menos Gastos", f"${total_menos_gastos:,.2f}")
+                        # Consolidado de pagos (solo el consolidado)
+                        st.subheader("Consolidado de Pagos (Ventas + Socios)")
+                        try:
+                            verificacion_json = cierre.get("verificacion_pagos_detalle")
+                            if verificacion_json:
+                                if isinstance(verificacion_json, str):
+                                    verificacion = json.loads(verificacion_json)
+                                else:
+                                    verificacion = verificacion_json
+                                if "verificacion_con_match" in verificacion:
+                                    df_consolidado = pd.DataFrame(verificacion["verificacion_con_match"])
+                                    st.dataframe(df_consolidado)
+                                    for pago in verificacion["verificacion_con_match"]:
+                                        st.markdown(f"**Método:** {pago['metodo']}  \n**Fuente:** {pago['fuente']}")
+                                        st.metric("Total Sistema", pago["total_sistema"])
+                                        st.metric("Total Reportado", pago["total_reportado"])
+                                        if pago.get("url_foto"):
+                                            st.markdown(f"[Ver Foto Adjunta]({pago['url_foto']})", unsafe_allow_html=True)
+                                        st.divider()
+                                else:
+                                    st.info("No hay datos consolidados de pagos.")
+                            else:
+                                st.info("No hay información de pagos consolidada.")
+                        except Exception as e:
+                            st.error(f"Error mostrando el consolidado: {e}")
 
 # ==========================================================
 # PESTAÑA 2: REPORTE CDE (NUEVO MÓDULO)
@@ -220,7 +225,6 @@ with tab_cde:
                 try:
                     df = pd.DataFrame.from_dict(detalle_dict.get('detalle', {}), orient='index').reset_index()
                     df.columns = ["Denominación", "Cantidad", "Subtotal"]
-                    # CORREGIDO: Advertencia de Deprecación
                     st.dataframe(df, width='stretch', hide_index=True)
                 except Exception:
                     st.json(detalle_dict.get('detalle'))
@@ -232,12 +236,10 @@ with tab_cde:
             return
 
         for metodo, data_guardada in data_dict.items():
-            # Nueva estructura de JSON: Saltamos los huérfanos/info en este reporte detallado
             if isinstance(data_guardada, dict):
-                
                 st.markdown(f"**Método: {metodo}**")
                 total_manual = data_guardada.get('total_manual', 0.0)
-                total_sistema = data_guardada.get('total_sistema', 0.0) # Usamos el total guardado en el JSON
+                total_sistema = data_guardada.get('total_sistema', 0.0)
                 match_ok = data_guardada.get('match_ok', False)
                 url_foto = data_guardada.get('url_foto', None)
                 discrepancia = Decimal(str(total_manual)) - Decimal(str(total_sistema))
@@ -251,7 +253,6 @@ with tab_cde:
                     st.markdown(f"**[Ver Foto Adjunta]({url_foto})**", unsafe_allow_html=True)
                 
                 st.divider()
-
 
     # --- Filtros (CDE) ---
     sucursales_db_cde, usuarios_db_cde = cargar_filtros_data_cde()
@@ -306,14 +307,13 @@ with tab_cde:
                     cde_mostrar_reporte_efectivo(
                         "Reporte de Efectivo",
                         cierre.get('detalle_conteo_efectivo'),
-                        cierre.get('total_efectivo_sistema', 0), # Usamos el total guardado
+                        cierre.get('total_efectivo_sistema', 0),
                         cierre.get('total_efectivo_contado', 0)
                     )
                     
                     st.divider()
                     
                     # 2. Mostrar reporte de otros métodos
-                    # Pasamos un dict vacío para los totales en vivo ya que solo queremos mostrar los datos guardados
                     cde_mostrar_verificacion_metodos(
                         cierre.get('verificacion_metodos'),
                         {} 
