@@ -201,7 +201,11 @@ with tab_op:
                         col6.metric("Total de Gastos", f"${total_gastos:,.2f}")
                         col7.metric("Total Completo", f"${total_completo:,.2f}")
                         col8.metric("Total menos Gastos", f"${total_menos_gastos:,.2f}")
-
+                    with t_ini: op_mostrar_reporte_denominaciones("Detalle Caja Inicial", cierre.get('saldo_inicial_detalle'))
+                    with t_fin: op_mostrar_reporte_denominaciones("Detalle Caja Final", cierre.get('saldo_final_detalle'))
+                    with t_verif: op_mostrar_reporte_verificacion(cierre.get('verificacion_pagos_detalle'))
+                    with t_gastos: op_mostrar_reporte_gastos(cierre['id'])
+                    
 # ==========================================================
 # PESTAÑA 2: REPORTE CDE (NUEVO MÓDULO)
 # ==========================================================
@@ -381,3 +385,4 @@ with tab_analisis:
             st.bar_chart(df_grouped)
 
     st.info("**Nota Importante:** Este reporte no puede filtrar por Socio individual, ya que el resumen `verificacion_pagos_detalle` guarda los totales de forma consolidada.")
+
