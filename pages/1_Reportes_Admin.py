@@ -158,22 +158,21 @@ with tab_op:
                     ])
                     with t_res:
                         st.subheader("Resumen del Cierre")
+
                         saldo_siguiente = float(cierre.get("saldo_para_siguiente_dia") or 0)
                         a_depositar = float(cierre.get("total_a_depositar") or 0)
-                        total_efectivo = float(cierre.get("saldo_final_efectivo") or 0)
+                        total_efectivo = float(cierre.get("saldo_final_efectivo") or 0)  # <-- Este es el referente correcto
 
                         # --- Consolidado de métodos de pago ---
                         total_yappy = total_tarjeta_credito = total_tarjeta_debito = 0
 
                         pagos_detalle = cierre.get("verificacion_pagos_detalle")
                         if pagos_detalle:
-                            # Si es string, conviértelo a dict
                             if isinstance(pagos_detalle, str):
                                 try:
                                     pagos_detalle = json.loads(pagos_detalle)
                                 except Exception:
                                     pagos_detalle = {}
-                            # Consolidado (solo verificacion_con_match)
                             for item in pagos_detalle.get("verificacion_con_match", []):
                                 metodo = item.get("metodo", "").lower()
                                 total = float(item.get("total_reportado", 0) or 0)
@@ -181,7 +180,7 @@ with tab_op:
                                     total_yappy += total
                                 elif "credito" in metodo:
                                     total_tarjeta_credito += total
-                                elif "debito" in metodo or "clave" in metodo:  # Incluye Tarjeta Clave como débito
+                                elif "debito" in metodo or "clave" in metodo:
                                     total_tarjeta_debito += total
 
                         # --- Gastos ---
@@ -190,20 +189,26 @@ with tab_op:
                             gastos_lista, _ = database.obtener_gastos_del_cierre(cierre["id"])
                             total_gastos = sum(float(g["monto"]) for g in gastos_lista) if gastos_lista else 0
 
+                        # --- Nuevo cálculo correcto ---
                         total_completo = total_efectivo + total_yappy + total_tarjeta_credito + total_tarjeta_debito
                         total_menos_gastos = total_completo - total_gastos
 
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("Saldo Siguiente", f"${saldo_siguiente:,.2f}")
-                        col2.metric("A Depositar", f"${a_depositar:,.2f}")
-                        col3.metric("Total de Yappy", f"${total_yappy:,.2f}")
-                        col4.metric("Total Tarjeta Crédito", f"${total_tarjeta_credito:,.2f}")
+                        # Muestra el efectivo como referente principal
+                        col1, col2, col3, col4, col5 = st.columns(5)
+                        col1.metric("Total Efectivo del Día", f"${total_efectivo:,.2f}")
+                        col2.metric("Total de Yappy", f"${total_yappy:,.2f}")
+                        col3.metric("Total Tarjeta Crédito", f"${total_tarjeta_credito:,.2f}")
+                        col4.metric("Total Tarjeta Débito", f"${total_tarjeta_debito:,.2f}")
+                        col5.metric("Total de Gastos", f"${total_gastos:,.2f}")
 
-                        col5, col6, col7, col8 = st.columns(4)
-                        col5.metric("Total Tarjeta Débito", f"${total_tarjeta_debito:,.2f}")
-                        col6.metric("Total de Gastos", f"${total_gastos:,.2f}")
-                        col7.metric("Total Completo", f"${total_completo:,.2f}")
-                        col8.metric("Total menos Gastos", f"${total_menos_gastos:,.2f}")
+                        col6, col7 = st.columns(2)
+                        col6.metric("Total Completo", f"${total_completo:,.2f}")
+                        col7.metric("Total menos Gastos", f"${total_menos_gastos:,.2f}")
+
+                        # Si quieres, puedes mostrar Saldo Siguiente y A Depositar en otra fila aparte:
+                        col8, col9 = st.columns(2)
+                        col8.metric("Saldo Siguiente", f"${saldo_siguiente:,.2f}")
+                        col9.metric("A Depositar", f"${a_depositar:,.2f}")
                     with t_ini: op_mostrar_reporte_denominaciones("Detalle Caja Inicial", cierre.get('saldo_inicial_detalle'))
                     with t_fin: op_mostrar_reporte_denominaciones("Detalle Caja Final", cierre.get('saldo_final_detalle'))
                     with t_verif: op_mostrar_reporte_verificacion(cierre.get('verificacion_pagos_detalle'))
@@ -388,3 +393,4 @@ with tab_analisis:
             st.bar_chart(df_grouped)
 
     st.info("**Nota Importante:** Este reporte no puede filtrar por Socio individual, ya que el resumen `verificacion_pagos_detalle` guarda los totales de forma consolidada.")
+
