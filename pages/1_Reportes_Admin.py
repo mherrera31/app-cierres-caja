@@ -152,55 +152,55 @@ with tab_op:
                 
                 with st.expander(titulo_expander):
                     t_res, t_ini, t_fin, t_verif, t_gastos = st.tabs(["Resumen", "Caja Inicial", "Caja Final", "Verificación", "Gastos"])
-    with t_res:
-        st.subheader("Resumen del Cierre")
+                    with t_res:
+                        st.subheader("Resumen del Cierre")
 
-        saldo_siguiente = float(cierre.get("saldo_para_siguiente_dia") or 0)
-        a_depositar = float(cierre.get("total_a_depositar") or 0)
-        total_efectivo = float(cierre.get("saldo_final_efectivo") or 0)
+                        saldo_siguiente = float(cierre.get("saldo_para_siguiente_dia") or 0)
+                        a_depositar = float(cierre.get("total_a_depositar") or 0)
+                        total_efectivo = float(cierre.get("saldo_final_efectivo") or 0)
 
-        # --- Consolidado de métodos de pago ---
-        total_yappy = total_tarjeta_credito = total_tarjeta_debito = 0
+                        # --- Consolidado de métodos de pago ---
+                        total_yappy = total_tarjeta_credito = total_tarjeta_debito = 0
 
-        pagos_detalle = cierre.get("verificacion_pagos_detalle")
-        if pagos_detalle:
-            # Si es string, conviértelo a dict
-            if isinstance(pagos_detalle, str):
-                try:
-                    pagos_detalle = json.loads(pagos_detalle)
-                except Exception:
-                    pagos_detalle = {}
-            # Consolidado (solo verificacion_con_match)
-            for item in pagos_detalle.get("verificacion_con_match", []):
-                metodo = item.get("metodo", "").lower()
-                total = float(item.get("total_reportado", 0) or 0)
-                if "yappy" in metodo:
-                    total_yappy += total
-                elif "credito" in metodo:
-                    total_tarjeta_credito += total
-                elif "debito" in metodo or "clave" in metodo:  # Incluye Tarjeta Clave como débito
-                    total_tarjeta_debito += total
+                        pagos_detalle = cierre.get("verificacion_pagos_detalle")
+                        if pagos_detalle:
+                            # Si es string, conviértelo a dict
+                            if isinstance(pagos_detalle, str):
+                                try:
+                                    pagos_detalle = json.loads(pagos_detalle)
+                                except Exception:
+                                    pagos_detalle = {}
+                            # Consolidado (solo verificacion_con_match)
+                            for item in pagos_detalle.get("verificacion_con_match", []):
+                                metodo = item.get("metodo", "").lower()
+                                total = float(item.get("total_reportado", 0) or 0)
+                                if "yappy" in metodo:
+                                    total_yappy += total
+                                elif "credito" in metodo:
+                                    total_tarjeta_credito += total
+                                elif "debito" in metodo or "clave" in metodo:  # Incluye Tarjeta Clave como débito
+                                    total_tarjeta_debito += total
 
-        # --- Gastos ---
-        total_gastos = float(cierre.get("total_gastos", 0) or 0)
-        if not total_gastos and cierre.get("id"):
-            gastos_lista, _ = database.obtener_gastos_del_cierre(cierre["id"])
-            total_gastos = sum(float(g["monto"]) for g in gastos_lista) if gastos_lista else 0
+                        # --- Gastos ---
+                        total_gastos = float(cierre.get("total_gastos", 0) or 0)
+                        if not total_gastos and cierre.get("id"):
+                            gastos_lista, _ = database.obtener_gastos_del_cierre(cierre["id"])
+                            total_gastos = sum(float(g["monto"]) for g in gastos_lista) if gastos_lista else 0
 
-        total_completo = total_efectivo + total_yappy + total_tarjeta_credito + total_tarjeta_debito
-        total_menos_gastos = total_completo - total_gastos
+                        total_completo = total_efectivo + total_yappy + total_tarjeta_credito + total_tarjeta_debito
+                        total_menos_gastos = total_completo - total_gastos
 
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Saldo Siguiente", f"${saldo_siguiente:,.2f}")
-        col2.metric("A Depositar", f"${a_depositar:,.2f}")
-        col3.metric("Total de Yappy", f"${total_yappy:,.2f}")
-        col4.metric("Total Tarjeta Crédito", f"${total_tarjeta_credito:,.2f}")
+                        col1, col2, col3, col4 = st.columns(4)
+                        col1.metric("Saldo Siguiente", f"${saldo_siguiente:,.2f}")
+                        col2.metric("A Depositar", f"${a_depositar:,.2f}")
+                        col3.metric("Total de Yappy", f"${total_yappy:,.2f}")
+                        col4.metric("Total Tarjeta Crédito", f"${total_tarjeta_credito:,.2f}")
 
-        col5, col6, col7, col8 = st.columns(4)
-        col5.metric("Total Tarjeta Débito", f"${total_tarjeta_debito:,.2f}")
-        col6.metric("Total de Gastos", f"${total_gastos:,.2f}")
-        col7.metric("Total Completo", f"${total_completo:,.2f}")
-        col8.metric("Total menos Gastos", f"${total_menos_gastos:,.2f}")
+                        col5, col6, col7, col8 = st.columns(4)
+                        col5.metric("Total Tarjeta Débito", f"${total_tarjeta_debito:,.2f}")
+                        col6.metric("Total de Gastos", f"${total_gastos:,.2f}")
+                        col7.metric("Total Completo", f"${total_completo:,.2f}")
+                        col8.metric("Total menos Gastos", f"${total_menos_gastos:,.2f}")
 
 # ==========================================================
 # PESTAÑA 2: REPORTE CDE (NUEVO MÓDULO)
