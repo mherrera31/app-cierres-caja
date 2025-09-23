@@ -912,39 +912,97 @@ def render_tab_resumen():
                     
 # --- Módulo: tab_caja_final ---
 def calcular_montos_finales_logica(conteo_detalle):
-    saldo_para_siguiente_dia = Decimal('0.0')
-    detalle_saldo_siguiente = {}
+    # Convertimos el detalle del conteo a Decimal para precisión
+    conteo_fisico = {
+        nombre: {"cantidad": data['cantidad'], "valor": Decimal(str(den['valor']))}
+        for den in DENOMINACIONES
+        if (nombre := den['nombre']) in conteo_detalle
+        and (data := conteo_detalle[nombre])['cantidad'] > 0
+    }
+
+    # 1. Separar el conteo físico en dos grupos iniciales
+    caja_chica = {}
+    para_deposito = dict(conteo_fisico)
+    
+    # 2. Hacer la selección inicial para la caja chica
+    # Mover todas las monedas a la caja chica
     for den in DENOMINACIONES:
-        if 'Moneda' in den['nombre']:
-            detalle_conteo = conteo_detalle or {}
-            cantidad_disponible = detalle_conteo.get(den['nombre'], {'cantidad': 0})['cantidad']
-            if cantidad_disponible > 0:
-                subtotal = Decimal(str(cantidad_disponible)) * Decimal(str(den['valor']))
-                saldo_para_siguiente_dia += subtotal
-                detalle_saldo_siguiente[den['nombre']] = {'cantidad': cantidad_disponible, 'subtotal': float(subtotal)}
-    den_billete_1 = next((d for d in DENOMINACIONES if d['nombre'] == 'Billetes de $1'), None)
-    if den_billete_1:
-        detalle_conteo = conteo_detalle or {}
-        cantidad_disponible_1 = detalle_conteo.get(den_billete_1['nombre'], {'cantidad': 0})['cantidad']
-        cantidad_a_dejar = min(cantidad_disponible_1, 4)
-        if cantidad_a_dejar > 0:
-            subtotal = Decimal(str(cantidad_a_dejar)) * Decimal(str(den_billete_1['valor']))
-            saldo_para_siguiente_dia += subtotal
-            detalle_saldo_siguiente[den_billete_1['nombre']] = {'cantidad': cantidad_a_dejar, 'subtotal': float(subtotal)}
-    den_billete_5 = next((d for d in DENOMINACIONES if d['nombre'] == 'Billetes de $5'), None)
-    if den_billete_5:
-        detalle_conteo = conteo_detalle or {}
-        cantidad_disponible_5 = detalle_conteo.get(den_billete_5['nombre'], {'cantidad': 0})['cantidad']
-        cantidad_a_dejar = min(cantidad_disponible_5, 4)
-        if cantidad_a_dejar > 0:
-            subtotal = Decimal(str(cantidad_a_dejar)) * Decimal(str(den_billete_5['valor']))
-            saldo_para_siguiente_dia += subtotal
-            detalle_saldo_siguiente[den_billete_5['nombre']] = {'cantidad': cantidad_a_dejar, 'subtotal': float(subtotal)}
-    total_contado_fisico = Decimal(str(sum(d.get('subtotal', 0) for d in (conteo_detalle or {}).values())))
-    total_a_depositar = total_contado_fisico - saldo_para_siguiente_dia
+        if "Moneda" in den['nombre'] and den['nombre'] in para_deposito:
+            caja_chica[den['nombre']] = para_deposito.pop(den['nombre'])
+
+    # Mover hasta 4 billetes de $1
+    if 'Billetes de $1' in para_deposito:
+        cantidad_a_mover = min(para_deposito['Billetes de $1']['cantidad'], 4)
+        caja_chica['Billetes de $1'] = {'cantidad': cantidad_a_mover, 'valor': Decimal('1.00')}
+        para_deposito['Billetes de $1']['cantidad'] -= cantidad_a_mover
+
+    # Mover hasta 4 billetes de $5
+    if 'Billetes de $5' in para_deposito:
+        cantidad_a_mover = min(para_deposito['Billetes de $5']['cantidad'], 4)
+        caja_chica['Billetes de $5'] = {'cantidad': cantidad_a_mover, 'valor': Decimal('5.00')}
+        para_deposito['Billetes de $5']['cantidad'] -= cantidad_a_mover
+
+    # 3. Calcular el total inicial de la caja chica
+    total_caja_chica = sum(d['cantidad'] * d['valor'] for d in caja_chica.values())
+
+    # 4. Lógica de Ajuste: Corregir si el total está fuera del rango $25 - $50
+    
+    # 4A. Si hay MÁS de $50, quitar el exceso empezando por monedas de mayor valor
+    if total_caja_chica > 50:
+        exceso = total_caja_chica - Decimal('50.00')
+        denominaciones_a_quitar = sorted(
+            [d for d in DENOMINACIONES if "Moneda" in d['nombre']],
+            key=lambda x: x['valor'], reverse=True
+        )
+        for den in denominaciones_a_quitar:
+            if exceso <= 0: break
+            nombre = den['nombre']
+            if nombre in caja_chica:
+                valor_unitario = caja_chica[nombre]['valor']
+                cantidad_a_mover = min(caja_chica[nombre]['cantidad'], int(exceso // valor_unitario))
+                if cantidad_a_mover > 0:
+                    caja_chica[nombre]['cantidad'] -= cantidad_a_mover
+                    if nombre not in para_deposito:
+                        para_deposito[nombre] = {'cantidad': 0, 'valor': valor_unitario}
+                    para_deposito[nombre]['cantidad'] += cantidad_a_mover
+                    exceso -= cantidad_a_mover * valor_unitario
+
+    # 4B. Si hay MENOS de $25, añadir lo que falta empezando por billetes de menor valor
+    elif total_caja_chica < 25:
+        deficit = Decimal('25.00') - total_caja_chica
+        denominaciones_a_anadir = sorted(
+            [d for d in DENOMINACIONES if "Billete" in d['nombre']],
+            key=lambda x: x['valor']
+        )
+        for den in denominaciones_a_anadir:
+            if deficit <= 0: break
+            nombre = den['nombre']
+            if nombre in para_deposito and para_deposito[nombre]['cantidad'] > 0:
+                valor_unitario = para_deposito[nombre]['valor']
+                cantidad_a_mover = min(para_deposito[nombre]['cantidad'], int(deficit // valor_unitario))
+                if cantidad_a_mover > 0:
+                    para_deposito[nombre]['cantidad'] -= cantidad_a_mover
+                    if nombre not in caja_chica:
+                        caja_chica[nombre] = {'cantidad': 0, 'valor': valor_unitario}
+                    caja_chica[nombre]['cantidad'] += cantidad_a_mover
+                    deficit -= cantidad_a_mover * valor_unitario
+    
+    # 5. Calcular totales finales y preparar el diccionario de retorno
+    total_contado_fisico = sum(d['cantidad'] * d['valor'] for d in conteo_fisico.values())
+    total_final_caja_chica = sum(d['cantidad'] * d['valor'] for d in caja_chica.values())
+    total_a_depositar = total_contado_fisico - total_final_caja_chica
+
+    detalle_saldo_siguiente = {
+        nombre: {
+            "cantidad": data['cantidad'],
+            "subtotal": float(data['cantidad'] * data['valor'])
+        }
+        for nombre, data in caja_chica.items() if data['cantidad'] > 0
+    }
+
     return {
         "total_contado": float(total_contado_fisico),
-        "saldo_siguiente": {"total": float(saldo_para_siguiente_dia), "detalle": detalle_saldo_siguiente},
+        "saldo_siguiente": {"total": float(total_final_caja_chica), "detalle": detalle_saldo_siguiente},
         "total_a_depositar": float(total_a_depositar)
     }
 
