@@ -950,3 +950,15 @@ def get_dashboard_resumen_data(cierre_id):
 
     except Exception as e:
         return None, f"Error construyendo datos para el dashboard: {e}"
+
+def guardar_resumen_del_dia(cierre_id, resumen_json):
+    """
+    Actualiza el cierre de caja para guardar el JSON del resumen del día.
+    """
+    try:
+        datos = {"resumen_del_dia": resumen_json}
+        response = supabase.table('cierres_caja').update(datos).eq('id', cierre_id).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al guardar el resumen del día: {e}"
+
