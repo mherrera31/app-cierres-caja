@@ -204,8 +204,8 @@ def obtener_pagos_del_cierre(cierre_id):
 
 def obtener_metodos_pago_con_flags():
     try:
-        # Añadimos la columna 'es_efectivo' que faltaba
-        response = supabase.table('metodos_pago').select('id, nombre, requiere_conteo, requiere_foto_voucher, is_activo, is_cde, es_efectivo').order('nombre').execute()
+        # Asegúrate de que tu línea select se vea así:
+        response = supabase.table('metodos_pago').select('id, nombre, requiere_conteo, requiere_foto_voucher, is_activo, is_cde, es_efectivo, tipo').order('nombre').execute()
         return response.data, None
     except Exception as e:
         return [], f"Error al obtener los métodos de pago con flags: {e}"
