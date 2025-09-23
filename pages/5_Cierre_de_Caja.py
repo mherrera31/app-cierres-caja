@@ -912,68 +912,71 @@ def render_tab_resumen():
                     
 # --- Módulo: tab_caja_final ---
 def calcular_montos_finales_logica(conteo_detalle):
-    # Convertimos el detalle del conteo a Decimal para precisión
+    # Usamos Decimal para toda la lógica interna para máxima precisión
     conteo_fisico = {
         nombre: {"cantidad": data['cantidad'], "valor": Decimal(str(den['valor']))}
         for den in DENOMINACIONES
         if (nombre := den['nombre']) in conteo_detalle
         and (data := conteo_detalle[nombre])['cantidad'] > 0
     }
+    total_contado_fisico = sum(d['cantidad'] * d['valor'] for d in conteo_fisico.values())
 
-    # 1. Separar el conteo físico en dos grupos iniciales
+    # --- MANEJO DE CASO ESPECIAL: No hay suficiente efectivo para el mínimo de la caja chica ---
+    if total_contado_fisico < 25:
+        # Si el total es menos de $25, todo se queda en caja y el depósito es $0.
+        detalle_saldo_siguiente = {
+            nombre: {"cantidad": data['cantidad'], "subtotal": float(data['cantidad'] * data['valor'])}
+            for nombre, data in conteo_fisico.items()
+        }
+        return {
+            "total_contado": float(total_contado_fisico),
+            "saldo_siguiente": {"total": float(total_contado_fisico), "detalle": detalle_saldo_siguiente},
+            "total_a_depositar": 0.0
+        }
+
+    # --- LÓGICA NORMAL: Si hay $25 o más en total ---
     caja_chica = {}
-    para_deposito = dict(conteo_fisico)
-    
-    # 2. Hacer la selección inicial para la caja chica
-    # Mover todas las monedas a la caja chica
-    for den in DENOMINACIONES:
-        if "Moneda" in den['nombre'] and den['nombre'] in para_deposito:
-            caja_chica[den['nombre']] = para_deposito.pop(den['nombre'])
+    para_deposito = {k: v.copy() for k, v in conteo_fisico.items()}
 
-    # Mover hasta 4 billetes de $1
+    # 2. Selección inicial para la caja chica
+    for den in DENOMINACIONES:
+        nombre = den['nombre']
+        if "Moneda" in nombre and nombre in para_deposito:
+            caja_chica[nombre] = para_deposito.pop(nombre)
+
     if 'Billetes de $1' in para_deposito:
         cantidad_a_mover = min(para_deposito['Billetes de $1']['cantidad'], 4)
-        caja_chica['Billetes de $1'] = {'cantidad': cantidad_a_mover, 'valor': Decimal('1.00')}
-        para_deposito['Billetes de $1']['cantidad'] -= cantidad_a_mover
+        if cantidad_a_mover > 0:
+            caja_chica['Billetes de $1'] = {'cantidad': cantidad_a_mover, 'valor': Decimal('1.00')}
+            para_deposito['Billetes de $1']['cantidad'] -= cantidad_a_mover
 
-    # Mover hasta 4 billetes de $5
     if 'Billetes de $5' in para_deposito:
         cantidad_a_mover = min(para_deposito['Billetes de $5']['cantidad'], 4)
-        caja_chica['Billetes de $5'] = {'cantidad': cantidad_a_mover, 'valor': Decimal('5.00')}
-        para_deposito['Billetes de $5']['cantidad'] -= cantidad_a_mover
+        if cantidad_a_mover > 0:
+            caja_chica['Billetes de $5'] = {'cantidad': cantidad_a_mover, 'valor': Decimal('5.00')}
+            para_deposito['Billetes de $5']['cantidad'] -= cantidad_a_mover
 
-    # 3. Calcular el total inicial de la caja chica
+    # 3. Calcular total inicial de la caja chica y ajustar si está fuera del rango
     total_caja_chica = sum(d['cantidad'] * d['valor'] for d in caja_chica.values())
 
-    # 4. Lógica de Ajuste: Corregir si el total está fuera del rango $25 - $50
-    
-    # 4A. Si hay MÁS de $50, quitar el exceso empezando por monedas de mayor valor
     if total_caja_chica > 50:
         exceso = total_caja_chica - Decimal('50.00')
-        denominaciones_a_quitar = sorted(
-            [d for d in DENOMINACIONES if "Moneda" in d['nombre']],
-            key=lambda x: x['valor'], reverse=True
-        )
+        denominaciones_a_quitar = sorted([d for d in DENOMINACIONES if "Moneda" in d['nombre']], key=lambda x: x['valor'], reverse=True)
         for den in denominaciones_a_quitar:
             if exceso <= 0: break
             nombre = den['nombre']
-            if nombre in caja_chica:
+            if nombre in caja_chica and caja_chica[nombre]['cantidad'] > 0:
                 valor_unitario = caja_chica[nombre]['valor']
                 cantidad_a_mover = min(caja_chica[nombre]['cantidad'], int(exceso // valor_unitario))
                 if cantidad_a_mover > 0:
                     caja_chica[nombre]['cantidad'] -= cantidad_a_mover
-                    if nombre not in para_deposito:
-                        para_deposito[nombre] = {'cantidad': 0, 'valor': valor_unitario}
+                    if nombre not in para_deposito: para_deposito[nombre] = {'cantidad': 0, 'valor': valor_unitario}
                     para_deposito[nombre]['cantidad'] += cantidad_a_mover
                     exceso -= cantidad_a_mover * valor_unitario
-
-    # 4B. Si hay MENOS de $25, añadir lo que falta empezando por billetes de menor valor
+    
     elif total_caja_chica < 25:
         deficit = Decimal('25.00') - total_caja_chica
-        denominaciones_a_anadir = sorted(
-            [d for d in DENOMINACIONES if "Billete" in d['nombre']],
-            key=lambda x: x['valor']
-        )
+        denominaciones_a_anadir = sorted([d for d in DENOMINACIONES if "Billete" in d['nombre']], key=lambda x: x['valor'])
         for den in denominaciones_a_anadir:
             if deficit <= 0: break
             nombre = den['nombre']
@@ -982,21 +985,16 @@ def calcular_montos_finales_logica(conteo_detalle):
                 cantidad_a_mover = min(para_deposito[nombre]['cantidad'], int(deficit // valor_unitario))
                 if cantidad_a_mover > 0:
                     para_deposito[nombre]['cantidad'] -= cantidad_a_mover
-                    if nombre not in caja_chica:
-                        caja_chica[nombre] = {'cantidad': 0, 'valor': valor_unitario}
+                    if nombre not in caja_chica: caja_chica[nombre] = {'cantidad': 0, 'valor': valor_unitario}
                     caja_chica[nombre]['cantidad'] += cantidad_a_mover
                     deficit -= cantidad_a_mover * valor_unitario
     
-    # 5. Calcular totales finales y preparar el diccionario de retorno
-    total_contado_fisico = sum(d['cantidad'] * d['valor'] for d in conteo_fisico.values())
+    # 5. Calcular totales finales DIRECTAMENTE de los grupos separados
     total_final_caja_chica = sum(d['cantidad'] * d['valor'] for d in caja_chica.values())
-    total_a_depositar = total_contado_fisico - total_final_caja_chica
+    total_a_depositar = sum(d['cantidad'] * d['valor'] for d in para_deposito.values())
 
     detalle_saldo_siguiente = {
-        nombre: {
-            "cantidad": data['cantidad'],
-            "subtotal": float(data['cantidad'] * data['valor'])
-        }
+        nombre: {"cantidad": data['cantidad'], "subtotal": float(data['cantidad'] * data['valor'])}
         for nombre, data in caja_chica.items() if data['cantidad'] > 0
     }
 
