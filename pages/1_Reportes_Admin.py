@@ -25,20 +25,17 @@ if not st.session_state.get("autenticado") or st.session_state.get("perfil", {})
 st.set_page_config(page_title="Reportes de Cierre", layout="wide")
 st.title("Panel de Reportes Administrativos")
 
-# --- FUNCIONES DE CACHÉ PARA CARGAR DATOS DE FILTROS (ORGANIZADAS) ---
+# --- FUNCIONES DE CACHÉ PARA CARGAR DATOS DE FILTROS ---
 @st.cache_data(ttl=600) 
 def cargar_filtros_data_basicos():
-    """ Carga todos los datos maestros para los filtros. """
     sucursales, _ = database.obtener_sucursales()
     usuarios, _ = database.admin_get_lista_usuarios()
     metodos, _ = database.obtener_metodos_pago()
     socios, _ = database.admin_get_todos_socios()
-    categorias, _ = database.admin_get_todas_categorias()
-    return sucursales, usuarios, metodos, socios, categorias
+    return sucursales, usuarios, metodos, socios
 
 @st.cache_data(ttl=600) 
 def cargar_filtros_data_cde():
-    """ Carga solo sucursales CDE y usuarios. """
     sucursales, _ = database.obtener_sucursales_cde()
     usuarios, _ = database.admin_get_lista_usuarios()
     return sucursales, usuarios
@@ -56,41 +53,56 @@ tab_op, tab_cde, tab_analisis = st.tabs([
 with tab_op:
     st.header("Log de Cierres de Caja Operativos")
 
-    # --- Funciones Auxiliares ---
-    def op_mostrar_reporte_denominaciones(titulo, data_dict):
-        st.subheader(titulo)
-        if not data_dict or not data_dict.get('detalle'):
-            st.info("No hay datos de conteo para este paso.")
-            return
-        df = pd.DataFrame.from_dict(data_dict.get('detalle', {}), orient='index').reset_index()
-        df.columns = ["Denominación", "Cantidad", "Subtotal"]
-        st.dataframe(df, width='stretch', hide_index=True)
-        st.metric(label=f"TOTAL CONTADO ({titulo})", value=f"${float(data_dict.get('total', 0)):,.2f}")
+    # --- NUEVAS FUNCIONES AUXILIARES DE REPORTE ---
+    def op_mostrar_tab_resumen(cierre_dict):
+        st.subheader("Resumen del Cierre")
+        nota_discrepancia = cierre_dict.get('nota_discrepancia')
+        if nota_discrepancia:
+            st.warning(f"⚠️ **Nota de Admin por Descuadre:** {nota_discrepancia}")
+
+        resumen_guardado = cierre_dict.get('resumen_del_dia')
+        if resumen_guardado:
+            st.info("Mostrando datos del nuevo reporte de resumen guardado.")
+            total_rayo = float(resumen_guardado.get('total_rayo_externo', 0))
+            socios_data = resumen_guardado.get('totales_por_socio', [])
+            total_socios = sum(float(s.get('total', 0)) for s in socios_data)
+            
+            col1, col2 = st.columns(2)
+            col1.metric("Total Verificable (POS + Socios)", f"${total_rayo:,.2f}")
+            col2.metric("Total Ingresos por Socios", f"${total_socios:,.2f}")
+            
+            with st.expander("Ver desglose del resumen guardado en JSON"):
+                st.json(resumen_guardado)
+        else:
+            st.info("Mostrando datos de un cierre antiguo (sin resumen guardado).")
+            col1, col2 = st.columns(2)
+            col1.metric("A Depositar", f"${float(cierre_dict.get('total_a_depositar', 0)):,.2f}")
+            col2.metric("Saldo para Siguiente Día", f"${float(cierre_dict.get('saldo_para_siguiente_dia', 0)):,.2f}")
 
     def op_mostrar_reporte_verificacion(data_dict):
         st.subheader("Reporte de Verificación de Pagos")
         if not data_dict:
             st.info("No hay datos de verificación guardados.")
             return
-        st.markdown("**Pagos Verificados (Match)**")
-        verificados = data_dict.get('verificacion_con_match', [])
-        if not verificados: st.markdown("*N/A*")
+        
+        st.markdown("**Verificación Consolidada**")
+        verificados = data_dict.get('verificacion_consolidada', [])
+        if not verificados: st.markdown("*No se realizaron verificaciones.*")
         for item in verificados:
             match_texto = "OK ✔️" if item.get('match_ok') else "FALLO ❌"
-            st.markdown(f"**{item.get('metodo')}** (Fuente: *{item.get('fuente')}*)")
+            st.markdown(f"**{item.get('metodo')}**")
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Sistema", f"${item.get('total_sistema', 0):,.2f}")
             col2.metric("Total Reportado", f"${item.get('total_reportado', 0):,.2f}")
-            col3.metric("Estado Match", f"{match_texto}")
-            url_foto = item.get('url_foto')
-            if url_foto: st.markdown(f"**[Ver Foto Adjunta]({url_foto})**", unsafe_allow_html=True)
+            col3.metric("Estado", match_texto)
+            if item.get('url_foto'): st.markdown(f"**[Ver Foto Adjunta]({item.get('url_foto')})**")
             st.divider()
-        st.markdown("**Pagos Informativos y Huérfanos**")
-        informativos = data_dict.get('registros_informativos', [])
-        if not informativos: st.markdown("*N/A*")
-        for item in informativos:
-            st.metric(label=f"{item.get('metodo')} (Fuente: {item.get('fuente')})", value=f"${item.get('total_sistema', 0):,.2f}")
-            st.divider()
+
+        st.markdown("**Reporte Informativo Completo**")
+        reporte_info = data_dict.get('reporte_informativo_completo', {})
+        if not reporte_info: st.markdown("*No hay datos informativos.*")
+        with st.expander("Ver desglose informativo detallado en JSON"):
+            st.json(reporte_info)
 
     def op_mostrar_reporte_gastos(cierre_id):
         st.subheader("Reporte de Gastos")
@@ -98,25 +110,13 @@ with tab_op:
         if err_g: st.error(f"Error: {err_g}")
         elif not gastos_lista: st.info("No se registraron gastos.")
         else:
-            df_data = [{"Categoría": g.get('gastos_categorias', {}).get('nombre', 'N/A'), "Monto": g.get('monto', 0), "Notas": g.get('notas')} for g in gastos_lista]
-            st.dataframe(df_data, width='stretch')
-            st.metric("TOTAL GASTOS", f"${sum(g['Monto'] for g in df_data):,.2f}")
-    
-    def comando_reabrir_operativo(cierre_id):
-        _, error = database.reabrir_cierre(cierre_id)
-        if error: st.error(f"No se pudo reabrir: {error}")
-        else:
-            st.success(f"¡Cierre {cierre_id} reabierto!")
-            cargar_filtros_data_basicos.clear()
-            st.rerun()
-
-    def comando_revisar_abierto(cierre_objeto, nombre_sucursal):
-        st.session_state['admin_review_cierre_obj'] = cierre_objeto
-        st.session_state['admin_review_sucursal_nombre'] = nombre_sucursal
-        st.success(f"Modo Revisión activado para: {nombre_sucursal}. Navega a 'Cierre de Caja'.")
+            df_data = [{"Categoría": g.get('gastos_categorias', {}).get('nombre', 'N/A'), "Monto": g.get('monto', 0), "Notas": g.get('notas', '')} for g in gastos_lista]
+            df = pd.DataFrame(df_data)
+            st.dataframe(df, hide_index=True, use_container_width=True)
+            st.metric("TOTAL GASTOS", f"${df['Monto'].sum():,.2f}")
 
     # --- Filtros (Operativo) ---
-    sucursales_db_op, usuarios_db_op, _, _, _ = cargar_filtros_data_basicos()
+    sucursales_db_op, usuarios_db_op, _, _ = cargar_filtros_data_basicos()
     opciones_sucursal_op = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db_op}}
     opciones_usuario_op = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db_op}}
 
@@ -142,10 +142,8 @@ with tab_op:
             solo_discrepancia=solo_disc_op
         )
         
-        if error_op: 
-            st.error(f"Error de DB: {error_op}")
-        elif not cierres_op: 
-            st.warning("No se encontraron cierres operativos con esos filtros.")
+        if error_op: st.error(f"Error de DB: {error_op}")
+        elif not cierres_op: st.warning("No se encontraron cierres operativos con esos filtros.")
         else:
             for cierre in cierres_op:
                 user_nombre = cierre.get('perfiles', {}).get('nombre', 'N/A')
@@ -156,64 +154,13 @@ with tab_op:
                     t_res, t_ini, t_fin, t_verif, t_gastos = st.tabs([
                         "Resumen", "Caja Inicial", "Caja Final", "Verificación", "Gastos"
                     ])
-                    with t_res:
-                        st.subheader("Resumen del Cierre")
 
-                        saldo_siguiente = float(cierre.get("saldo_para_siguiente_dia") or 0)
-                        a_depositar = float(cierre.get("total_a_depositar") or 0)
-                        total_efectivo = float(cierre.get("saldo_final_efectivo") or 0)  # <-- Este es el referente correcto
-
-                        # --- Consolidado de métodos de pago ---
-                        total_yappy = total_tarjeta_credito = total_tarjeta_debito = 0
-
-                        pagos_detalle = cierre.get("verificacion_pagos_detalle")
-                        if pagos_detalle:
-                            if isinstance(pagos_detalle, str):
-                                try:
-                                    pagos_detalle = json.loads(pagos_detalle)
-                                except Exception:
-                                    pagos_detalle = {}
-                            for item in pagos_detalle.get("verificacion_con_match", []):
-                                metodo = item.get("metodo", "").lower()
-                                total = float(item.get("total_reportado", 0) or 0)
-                                if "yappy" in metodo:
-                                    total_yappy += total
-                                elif "credito" in metodo:
-                                    total_tarjeta_credito += total
-                                elif "debito" in metodo or "clave" in metodo:
-                                    total_tarjeta_debito += total
-
-                        # --- Gastos ---
-                        total_gastos = float(cierre.get("total_gastos", 0) or 0)
-                        if not total_gastos and cierre.get("id"):
-                            gastos_lista, _ = database.obtener_gastos_del_cierre(cierre["id"])
-                            total_gastos = sum(float(g["monto"]) for g in gastos_lista) if gastos_lista else 0
-
-                        # --- Nuevo cálculo correcto ---
-                        total_completo = total_efectivo + total_yappy + total_tarjeta_credito + total_tarjeta_debito
-                        total_menos_gastos = total_completo - total_gastos
-
-                        # Muestra el efectivo como referente principal
-                        col1, col2, col3, col4, col5 = st.columns(5)
-                        col1.metric("Total Efectivo del Día", f"${total_efectivo:,.2f}")
-                        col2.metric("Total de Yappy", f"${total_yappy:,.2f}")
-                        col3.metric("Total Tarjeta Crédito", f"${total_tarjeta_credito:,.2f}")
-                        col4.metric("Total Tarjeta Débito", f"${total_tarjeta_debito:,.2f}")
-                        col5.metric("Total de Gastos", f"${total_gastos:,.2f}")
-
-                        col6, col7 = st.columns(2)
-                        col6.metric("Total Completo", f"${total_completo:,.2f}")
-                        col7.metric("Total menos Gastos", f"${total_menos_gastos:,.2f}")
-
-                        # Si quieres, puedes mostrar Saldo Siguiente y A Depositar en otra fila aparte:
-                        col8, col9 = st.columns(2)
-                        col8.metric("Saldo Siguiente", f"${saldo_siguiente:,.2f}")
-                        col9.metric("A Depositar", f"${a_depositar:,.2f}")
-                    with t_ini: op_mostrar_reporte_denominaciones("Detalle Caja Inicial", cierre.get('saldo_inicial_detalle'))
-                    with t_fin: op_mostrar_reporte_denominaciones("Detalle Caja Final", cierre.get('saldo_final_detalle'))
+                    # --- Lógica de renderizado actualizada ---
+                    with t_res: op_mostrar_tab_resumen(cierre)
+                    with t_ini: st.json(cierre.get('saldo_inicial_detalle'), expanded=False)
+                    with t_fin: st.json(cierre.get('saldo_final_detalle'), expanded=False)
                     with t_verif: op_mostrar_reporte_verificacion(cierre.get('verificacion_pagos_detalle'))
                     with t_gastos: op_mostrar_reporte_gastos(cierre['id'])
-
 # ==========================================================
 # PESTAÑA 2: REPORTE CDE (NUEVO MÓDULO)
 # ==========================================================
