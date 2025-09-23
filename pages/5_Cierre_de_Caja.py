@@ -911,7 +911,7 @@ def render_tab_resumen():
 
                     
 # --- Módulo: tab_caja_final ---
-ef calcular_montos_finales_logica(conteo_detalle):
+def calcular_montos_finales_logica(conteo_detalle):
     # --- AÑADE ESTA LÍNEA PARA LA PRUEBA ---
     st.error("--- ESTÁ EJECUTÁNDOSE LA VERSIÓN MÁS NUEVA DE LA FUNCIÓN ---")
     # ------------------------------------
