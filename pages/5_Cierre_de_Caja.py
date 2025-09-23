@@ -372,15 +372,24 @@ def render_tab_ingresos_adic():
         st.warning("No se encontraron Socios o Métodos de Pago registrados en la base de datos.")
         st.stop()
 
+    # --- ESTA ES LA LÍNEA QUE DEBES AÑADIR O VERIFICAR ---
+    # Filtramos la lista para incluir solo métodos activos y de tipo 'externo'
+    metodos_pago_externos = [
+        mp for mp in metodos_pago
+        if mp.get('tipo') == 'externo' and mp.get('is_activo')
+    ]
+    # ----------------------------------------------------
+
     ingresos_lookup = cargar_ingresos_existentes(cierre_id)
     st.subheader("Registrar Ingresos Adicionales por Socio")
     st.markdown("Registre los montos recibidos por cada socio y método de pago. Use los 'expanders' (▼) para ver cada socio.")
 
     with st.form(key="form_ingresos_adicionales"):
-        widget_keys = [] 
+        widget_keys = []
         for socio in socios:
             with st.expander(f"Socio: {socio['nombre']}"):
-                for mp in metodos_pago:
+                # --- Y ASEGÚRATE DE USAR LA NUEVA LISTA AQUÍ ---
+                for mp in metodos_pago_externos:
                     socio_id = socio['id']
                     mp_nombre = mp['nombre']
                     widget_key = f"ing_{socio_id}_{mp_nombre}"
