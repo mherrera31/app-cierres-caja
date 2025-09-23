@@ -911,7 +911,11 @@ def render_tab_resumen():
 
                     
 # --- Módulo: tab_caja_final ---
-def calcular_montos_finales_logica(conteo_detalle):
+ef calcular_montos_finales_logica(conteo_detalle):
+    # --- AÑADE ESTA LÍNEA PARA LA PRUEBA ---
+    st.error("--- ESTÁ EJECUTÁNDOSE LA VERSIÓN MÁS NUEVA DE LA FUNCIÓN ---")
+    # ------------------------------------
+
     # Usamos Decimal para toda la lógica interna para máxima precisión
     conteo_fisico = {
         nombre: {"cantidad": data['cantidad'], "valor": Decimal(str(den['valor']))}
