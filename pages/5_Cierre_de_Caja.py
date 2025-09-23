@@ -912,10 +912,6 @@ def render_tab_resumen():
                     
 # --- Módulo: tab_caja_final ---
 def calcular_montos_finales_logica(conteo_detalle):
-    # --- AÑADE ESTA LÍNEA PARA LA PRUEBA ---
-    st.error("--- ESTÁ EJECUTÁNDOSE LA VERSIÓN MÁS NUEVA DE LA FUNCIÓN ---")
-    # ------------------------------------
-
     # Usamos Decimal para toda la lógica interna para máxima precisión
     conteo_fisico = {
         nombre: {"cantidad": data['cantidad'], "valor": Decimal(str(den['valor']))}
@@ -1007,7 +1003,6 @@ def calcular_montos_finales_logica(conteo_detalle):
         "saldo_siguiente": {"total": float(total_final_caja_chica), "detalle": detalle_saldo_siguiente},
         "total_a_depositar": float(total_a_depositar)
     }
-
 def calcular_saldo_teorico_efectivo(cierre_id, saldo_inicial_efectivo):
     """
     VERSIÓN DE DEPURACIÓN para mostrar los componentes del cálculo.
