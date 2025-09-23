@@ -790,60 +790,68 @@ def _ejecutar_calculo_resumen(cierre_id, cierre_actual_obj):
         }
 
 def render_tab_resumen():
+    """
+    Nueva versión del Resumen, ahora como un "Dashboard del Día".
+    """
     cierre_actual = st.session_state.get('cierre_actual_objeto')
     if not cierre_actual:
         st.error("Error: No hay ningún cierre cargado en la sesión.")
         st.stop()
     cierre_id = cierre_actual['id']
-    st.subheader("Cálculo del Saldo Teórico de Efectivo")
-    st.info("Este es el resumen de todo el efectivo. Presiona 'Recalcular' si has añadido nuevos gastos, ingresos o deliveries en las otras pestañas.")
-    if st.button("Recalcular Resumen (Refrescar Manual)", type="primary"):
-        _ejecutar_calculo_resumen(cierre_id, cierre_actual)
-        st.success("Resumen refrescado.")
-    resumen_cache = st.session_state.get('resumen_calculado')
-    if not resumen_cache or resumen_cache.get('cache_id') != cierre_id:
-        _ejecutar_calculo_resumen(cierre_id, cierre_actual)
-    st.divider()
-    resumen_guardado = st.session_state.get('resumen_calculado')
-    if not resumen_guardado:
-        st.warning("Calculando datos del resumen... (Presiona el botón de Recalcular si esto no desaparece).")
-    else:
-        val_total_teorico = resumen_guardado.get('total_calculado_efectivo') or 0.0
-        val_saldo_ini = resumen_guardado.get('saldo_inicial') or 0.0
-        val_ventas_efec = resumen_guardado.get('total_pagos_venta_efectivo') or 0.0
-        val_ing_adic_efec = resumen_guardado.get('total_ingresos_adicionales_efectivo') or 0.0
-        val_total_gastos = resumen_guardado.get('total_gastos') or 0.0
-        st.header(f"Total Teórico en Caja: ${val_total_teorico:,.2f}")
-        st.caption("Esta es la cantidad de efectivo que debería haber físicamente en caja antes del conteo final.")
-        
-        # Volvemos al cálculo simple de 4 columnas (Gastos ahora incluye Delivery)
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("1. Saldo Inicial (Efectivo)", f"${val_saldo_ini:,.2f}")
-        col2.metric("2. Ventas (Efectivo)", f"${val_ventas_efec:,.2f}")
-        col3.metric("3. Ingresos Adic. (Efectivo)", f"${val_ing_adic_efec:,.2f}")
-        col4.metric("4. Gastos (Incl. Delivery)", f"$-{val_total_gastos:,.2f}", delta_color="inverse")
-        
-        st.divider()
-        st.subheader("Detalles del Cálculo")
-        lista_pagos = resumen_guardado.get('pagos_lista', [])
-        lista_ingresos = resumen_guardado.get('ingresos_lista', [])
-        lista_gastos = resumen_guardado.get('gastos_lista', [])
-        with st.expander("Ver detalle de Ventas en Efectivo"):
-            if not lista_pagos: st.write("Sin ventas en efectivo.")
-            else: st.write(f"Total de {len(lista_pagos)} pagos en efectivo sumando: ${val_ventas_efec:,.2f}")
-        with st.expander("Ver detalle de Ingresos Adicionales en Efectivo (Solo los que afectan caja)"):
-            if not lista_ingresos: st.write("Sin ingresos adicionales en efectivo que afecten caja.")
-            else:
-                for ing in lista_ingresos:
-                    socio_nombre = ing.get('socios', {}).get('nombre', 'N/A')
-                    st.write(f"- Socio: {socio_nombre} | Monto: ${Decimal(str(ing.get('monto') or 0)):,.2f}")
-        with st.expander("Ver detalle de Gastos (Generales y Delivery)"):
-            if not lista_gastos: st.write("Sin gastos registrados.")
-            else:
-                for gasto in lista_gastos:
-                    cat_nombre = gasto.get('gastos_categorias', {}).get('nombre', 'N/A')
-                    st.write(f"- Categoría: {cat_nombre} | Monto: ${Decimal(str(gasto.get('monto') or 0)):,.2f} | Notas: {gasto.get('notas','')}")
 
+    st.subheader("Dashboard de Movimientos del Día")
+    
+    if st.button("🔄 Refrescar Dashboard", type="primary"):
+        # Limpiamos el caché si existe uno para esta función
+        if 'dashboard_data' in st.session_state:
+            del st.session_state['dashboard_data']
+        st.rerun()
+
+    # Cargar los datos del dashboard
+    if 'dashboard_data' not in st.session_state:
+        with st.spinner("Calculando totales del día..."):
+            data, err = database.get_dashboard_resumen_data(cierre_id)
+            if err:
+                st.error(err)
+                st.stop()
+            st.session_state['dashboard_data'] = data
+    
+    data = st.session_state['dashboard_data']
+    totales_rayo = data.get('rayo', {})
+    totales_socios = data.get('socios', {})
+    
+    st.divider()
+
+    # --- Sección 1: Ingresos de Rayo (POS) ---
+    st.markdown("### Ingresos de Rayo (POS)")
+    
+    total_general_rayo = sum(totales_rayo.values())
+    st.metric("Total General de Rayo", f"${total_general_rayo:,.2f}")
+
+    if not totales_rayo:
+        st.info("No se encontraron ingresos de Rayo (POS) para hoy.")
+    else:
+        with st.expander("Ver desglose de Rayo (POS) por método de pago"):
+            for metodo, total in sorted(totales_rayo.items()):
+                st.metric(label=metodo, value=f"${total:,.2f}")
+
+    st.divider()
+
+    # --- Sección 2: Ingresos por Socios ---
+    st.markdown("### Ingresos por Socios (Solo métodos externos)")
+
+    total_general_socios = sum(sum(metodos.values()) for metodos in totales_socios.values())
+    st.metric("Total General de Socios", f"${total_general_socios:,.2f}")
+
+    if not totales_socios:
+        st.info("No se encontraron ingresos de Socios para hoy.")
+    else:
+        for socio, metodos in sorted(totales_socios.items()):
+            total_socio = sum(metodos.values())
+            with st.expander(f"**Socio: {socio}** (Total: ${total_socio:,.2f})"):
+                for metodo, total in sorted(metodos.items()):
+                    st.metric(label=metodo, value=f"${total:,.2f}")
+                    
 # --- Módulo: tab_caja_final ---
 def calcular_montos_finales_logica(conteo_detalle):
     saldo_para_siguiente_dia = Decimal('0.0')
