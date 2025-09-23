@@ -948,14 +948,61 @@ def calcular_montos_finales_logica(conteo_detalle):
         "total_a_depositar": float(total_a_depositar)
     }
 
+def calcular_saldo_teorico_efectivo(cierre_id, saldo_inicial_efectivo):
+    """
+    Calcula el saldo teórico final de efectivo consultando todos los movimientos.
+    """
+    # Sumar Ingresos de Ventas (POS) en Efectivo
+    pagos_venta, err_p = database.obtener_pagos_del_cierre(cierre_id)
+    total_pagos_venta_efectivo = Decimal('0.00')
+    if not err_p and pagos_venta:
+        for pago in pagos_venta:
+            metodo = pago.get('metodo_pago')
+            if metodo and metodo.get('nombre', '').lower() == 'efectivo':
+                total_pagos_venta_efectivo += Decimal(str(pago.get('monto', 0.0)))
+
+    # Sumar Ingresos Adicionales de Socios en Efectivo (que apliquen)
+    ingresos_adicionales, err_i = database.obtener_ingresos_adicionales_del_cierre(cierre_id)
+    total_ingresos_adicionales_efectivo = Decimal('0.00')
+    if not err_i and ingresos_adicionales:
+        for ingreso in ingresos_adicionales:
+            metodo = ingreso.get('metodo_pago')
+            reglas_socio = ingreso.get('socios') or {}
+            if (metodo and metodo.lower() == 'efectivo' and 
+                reglas_socio.get('afecta_conteo_efectivo') == True):
+                total_ingresos_adicionales_efectivo += Decimal(str(ingreso.get('monto', 0.0)))
+
+    # Restar Gastos
+    gastos_data, err_g = database.obtener_gastos_del_cierre(cierre_id)
+    total_gastos = Decimal('0.00')
+    if not err_g and gastos_data:
+        for gasto in gastos_data:
+            total_gastos += Decimal(str(gasto.get('monto', 0.0)))
+            
+    # Fórmula Final
+    saldo_teorico = (Decimal(str(saldo_inicial_efectivo)) + 
+                     total_pagos_venta_efectivo + 
+                     total_ingresos_adicionales_efectivo - 
+                     total_gastos)
+                     
+    return saldo_teorico
+
 def render_tab_caja_final():
     cierre_actual = st.session_state.get('cierre_actual_objeto')
     if not cierre_actual:
         st.error("Error: No hay ningún cierre cargado en la sesión.")
         st.stop()
     cierre_id = cierre_actual['id']
-    saldo_teorico = Decimal(str(cierre_actual.get('total_calculado_teorico', 0.0)))
-    st.info(f"Total Teórico (calculado en Paso 5): ${saldo_teorico:,.2f}")
+
+    # --- INICIO DE LA MODIFICACIÓN ---
+    # Llamamos a nuestra nueva función para obtener el saldo FRESCO
+    saldo_inicial = cierre_actual.get('saldo_inicial_efectivo', 0.0)
+    with st.spinner("Calculando saldo teórico..."):
+        saldo_teorico = calcular_saldo_teorico_efectivo(cierre_id, saldo_inicial)
+    
+    st.info(f"Total Teórico (calculado ahora): ${saldo_teorico:,.2f}")
+    # --- FIN DE LA MODIFICACIÓN ---
+
     st.markdown("Ingrese el conteo físico de todo el efectivo en caja para calcular la diferencia.")
     datos_saldo_final_guardado = cierre_actual.get('saldo_final_detalle') or {}
     detalle_guardado = datos_saldo_final_guardado.get('detalle', {})
