@@ -912,70 +912,87 @@ def render_tab_resumen():
                     
 # --- Módulo: tab_caja_final ---
 def calcular_montos_finales_logica(conteo_detalle):
-    st.warning("--- MODO DEPURACIÓN TOTAL ACTIVADO ---")
-    st.write("1. Detalle del conteo físico recibido:")
-    st.json(conteo_detalle)
-
+    # Usamos Decimal para toda la lógica interna para máxima precisión
     conteo_fisico = {
         nombre: {"cantidad": data['cantidad'], "valor": Decimal(str(den['valor']))}
         for den in DENOMINACIONES
-        if (nombre := den['nombre']) in conteo_detalle and (data := conteo_detalle[nombre])['cantidad'] > 0
+        if (nombre := den['nombre']) in conteo_detalle
+        and (data := conteo_detalle[nombre])['cantidad'] > 0
     }
     total_contado_fisico = sum(d['cantidad'] * d['valor'] for d in conteo_fisico.values())
-    st.info(f"2. Total Físico Calculado: ${total_contado_fisico:,.2f}")
 
+    # --- MANEJO DE CASO ESPECIAL: No hay suficiente efectivo para el mínimo de la caja chica ---
     if total_contado_fisico < 25:
-        st.success("CASO ESPECIAL: Total físico es < $25. Todo se queda en caja.")
-        # ... (código del caso especial)
-        return # ...
-    
-    st.write("--- INICIO DE SEPARACIÓN ---")
+        # Si el total es menos de $25, todo se queda en caja y el depósito es $0.
+        detalle_saldo_siguiente = {
+            nombre: {"cantidad": data['cantidad'], "subtotal": float(data['cantidad'] * data['valor'])}
+            for nombre, data in conteo_fisico.items()
+        }
+        return {
+            "total_contado": float(total_contado_fisico),
+            "saldo_siguiente": {"total": float(total_contado_fisico), "detalle": detalle_saldo_siguiente},
+            "total_a_depositar": 0.0
+        }
+
+    # --- LÓGICA NORMAL: Si hay $25 o más en total ---
     caja_chica = {}
     para_deposito = {k: v.copy() for k, v in conteo_fisico.items()}
 
-    st.write("3. Moviendo monedas a Caja Chica...")
+    # 2. Selección inicial para la caja chica
     for den in DENOMINACIONES:
         nombre = den['nombre']
         if "Moneda" in nombre and nombre in para_deposito:
             caja_chica[nombre] = para_deposito.pop(nombre)
-    
-    st.write("Estado después de mover monedas:")
-    st.json({"caja_chica": {k: str(v['cantidad']*v['valor']) for k,v in caja_chica.items()}, "para_deposito": {k: str(v['cantidad']*v['valor']) for k,v in para_deposito.items()}})
 
-    st.write("4. Moviendo billetes de $1 y $5 a Caja Chica...")
     if 'Billetes de $1' in para_deposito:
         cantidad_a_mover = min(para_deposito['Billetes de $1']['cantidad'], 4)
         if cantidad_a_mover > 0:
             caja_chica['Billetes de $1'] = {'cantidad': cantidad_a_mover, 'valor': Decimal('1.00')}
             para_deposito['Billetes de $1']['cantidad'] -= cantidad_a_mover
+
     if 'Billetes de $5' in para_deposito:
         cantidad_a_mover = min(para_deposito['Billetes de $5']['cantidad'], 4)
         if cantidad_a_mover > 0:
             caja_chica['Billetes de $5'] = {'cantidad': cantidad_a_mover, 'valor': Decimal('5.00')}
             para_deposito['Billetes de $5']['cantidad'] -= cantidad_a_mover
 
-    st.write("Estado después de mover billetes iniciales:")
-    st.json({"caja_chica": {k: str(v['cantidad']*v['valor']) for k,v in caja_chica.items()}, "para_deposito": {k: str(v['cantidad']*v['valor']) for k,v in para_deposito.items()}})
-    
-    total_caja_chica_inicial = sum(d['cantidad'] * d['valor'] for d in caja_chica.values())
-    st.info(f"5. Total Inicial de Caja Chica (antes de ajustes): ${total_caja_chica_inicial:,.2f}")
+    # 3. Calcular total inicial de la caja chica y ajustar si está fuera del rango
+    total_caja_chica = sum(d['cantidad'] * d['valor'] for d in caja_chica.values())
 
-    # --- Lógica de Ajuste ---
-    # ... (la lógica de ajuste no la modificamos, solo observaremos su efecto)
+    if total_caja_chica > 50:
+        exceso = total_caja_chica - Decimal('50.00')
+        denominaciones_a_quitar = sorted([d for d in DENOMINACIONES if "Moneda" in d['nombre']], key=lambda x: x['valor'], reverse=True)
+        for den in denominaciones_a_quitar:
+            if exceso <= 0: break
+            nombre = den['nombre']
+            if nombre in caja_chica and caja_chica[nombre]['cantidad'] > 0:
+                valor_unitario = caja_chica[nombre]['valor']
+                cantidad_a_mover = min(caja_chica[nombre]['cantidad'], int(exceso // valor_unitario))
+                if cantidad_a_mover > 0:
+                    caja_chica[nombre]['cantidad'] -= cantidad_a_mover
+                    if nombre not in para_deposito: para_deposito[nombre] = {'cantidad': 0, 'valor': valor_unitario}
+                    para_deposito[nombre]['cantidad'] += cantidad_a_mover
+                    exceso -= cantidad_a_mover * valor_unitario
     
-    st.write("--- FIN DE SEPARACIÓN Y AJUSTES ---")
-
+    elif total_caja_chica < 25:
+        deficit = Decimal('25.00') - total_caja_chica
+        denominaciones_a_anadir = sorted([d for d in DENOMINACIONES if "Billete" in d['nombre']], key=lambda x: x['valor'])
+        for den in denominaciones_a_anadir:
+            if deficit <= 0: break
+            nombre = den['nombre']
+            if nombre in para_deposito and para_deposito[nombre]['cantidad'] > 0:
+                valor_unitario = para_deposito[nombre]['valor']
+                cantidad_a_mover = min(para_deposito[nombre]['cantidad'], int(deficit // valor_unitario))
+                if cantidad_a_mover > 0:
+                    para_deposito[nombre]['cantidad'] -= cantidad_a_mover
+                    if nombre not in caja_chica: caja_chica[nombre] = {'cantidad': 0, 'valor': valor_unitario}
+                    caja_chica[nombre]['cantidad'] += cantidad_a_mover
+                    deficit -= cantidad_a_mover * valor_unitario
+    
     # 5. Calcular totales finales DIRECTAMENTE de los grupos separados
     total_final_caja_chica = sum(d['cantidad'] * d['valor'] for d in caja_chica.values())
-    total_a_depositar = sum(d['cantidad'] * d['valor'] for d in para_deposito.values() if d['cantidad'] > 0) # Añadido 'if' por si acaso
+    total_a_depositar = sum(d['cantidad'] * d['valor'] for d in para_deposito.values())
 
-    st.success("6. Totales Finales Calculados:")
-    st.write(f"Total Final Caja Chica: ${total_final_caja_chica:,.2f}")
-    st.write(f"Total Final Para Depósito: ${total_a_depositar:,.2f}")
-
-    # Preparación del retorno (sin cambios)
-    # ...
-    
     detalle_saldo_siguiente = {
         nombre: {"cantidad": data['cantidad'], "subtotal": float(data['cantidad'] * data['valor'])}
         for nombre, data in caja_chica.items() if data['cantidad'] > 0
