@@ -880,3 +880,72 @@ def admin_reporte_ingresos_json(fecha_inicio=None, fecha_fin=None, sucursal_id=N
         return response.data, None
     except Exception as e:
         return None, f"Error al ejecutar reporte de ingresos desde JSON: {e}"
+
+def get_dashboard_resumen_data(cierre_id):
+    """
+    Recolecta y organiza todos los datos para el nuevo Dashboard del Resumen.
+    """
+    try:
+        # 1. Obtener la información básica del cierre (fecha, sucursal)
+        cierre_resp = supabase.table('cierres_caja').select('fecha_operacion, sucursales(sucursal)').eq('id', cierre_id).single().execute()
+        if not cierre_resp.data:
+            return None, "No se encontró el cierre de caja."
+        
+        fecha_str = cierre_resp.data['fecha_operacion']
+        sucursal_nombre = cierre_resp.data['sucursales']['sucursal']
+
+        # 2. Obtener todos los métodos de pago con su tipo
+        metodos_resp = supabase.table('metodos_pago').select('nombre, tipo').execute()
+        metodos_info = {m['nombre']: m['tipo'] for m in metodos_resp.data}
+
+        # 3. Obtener todos los pagos de "Rayo" (tabla pagos) para el día y sucursal
+        fecha_inicio = datetime.strptime(fecha_str, '%Y-%m-%d')
+        fecha_fin = fecha_inicio + timedelta(days=1)
+        pagos_resp = supabase.table('pagos') \
+            .select('metodo_pago, monto') \
+            .eq('sucursal', sucursal_nombre) \
+            .gte('created_at', fecha_inicio.isoformat()) \
+            .lt('created_at', fecha_fin.isoformat()) \
+            .execute()
+
+        # 4. Obtener todos los ingresos de socios para este cierre
+        ingresos_socios_resp = supabase.table('ingresos_adicionales') \
+            .select('metodo_pago, monto, socios(nombre)') \
+            .eq('cierre_id', cierre_id) \
+            .execute()
+            
+        # 5. Procesar los datos para el dashboard
+        
+        # Totales de Rayo (incluyendo internos y externos)
+        totales_rayo = {}
+        for pago in pagos_resp.data:
+            metodo = pago['metodo_pago']
+            monto = Decimal(str(pago.get('monto', 0) or 0))
+            if metodo not in totales_rayo:
+                totales_rayo[metodo] = Decimal('0.0')
+            totales_rayo[metodo] += monto
+
+        # Totales de Socios (filtrando solo los externos)
+        totales_socios = {}
+        for ingreso in ingresos_socios_resp.data:
+            metodo = ingreso['metodo_pago']
+            socio_nombre = ingreso.get('socios', {}).get('nombre', 'Socio Desconocido')
+            
+            # Aplicar la regla: Solo incluir si el método NO es de tipo 'interno'
+            if metodos_info.get(metodo) != 'interno':
+                monto = Decimal(str(ingreso.get('monto', 0) or 0))
+                if socio_nombre not in totales_socios:
+                    totales_socios[socio_nombre] = {}
+                if metodo not in totales_socios[socio_nombre]:
+                    totales_socios[socio_nombre][metodo] = Decimal('0.0')
+                totales_socios[socio_nombre][metodo] += monto
+                
+        dashboard_data = {
+            "rayo": totales_rayo,
+            "socios": totales_socios
+        }
+
+        return dashboard_data, None
+
+    except Exception as e:
+        return None, f"Error construyendo datos para el dashboard: {e}"
