@@ -868,21 +868,29 @@ def render_tab_resumen():
                 # --- FIN DE LA MODIFICACIÓN ---
 
     st.divider()
-
-    # --- Sección 2: Ingresos por Socios (sin cambios) ---
+    
+    # --- Sección 2: Ingresos por Socios ---
     st.markdown("### Ingresos por Socios (Solo métodos externos)")
-    # ... (El resto de la función no necesita cambios)
-    total_general_socios = sum(sum(Decimal(str(v)) for v in metodos.values()) for metodos in totales_socios.values())
-    st.metric("Total General de Socios", f"${total_general_socios:,.2f}")
 
     if not totales_socios:
         st.info("No se encontraron ingresos de Socios para hoy.")
     else:
-        for socio, metodos in sorted(totales_socios.items()):
-            total_socio = sum(Decimal(str(v)) for v in metodos.values())
-            with st.expander(f"**Socio: {socio}** (Total: ${total_socio:,.2f})"):
-                for metodo, total in sorted(metodos.items()):
-                    st.metric(label=metodo, value=f"${float(total):,.2f}")
+        # Creamos columnas para una mejor distribución visual
+        num_socios = len(totales_socios)
+        cols = st.columns(num_socios if num_socios > 0 else 1)
+        
+        # Iteramos sobre cada socio y lo mostramos en su propia columna
+        for i, (socio, metodos) in enumerate(sorted(totales_socios.items())):
+            with cols[i]:
+                total_socio = sum(Decimal(str(v)) for v in metodos.values())
+                
+                # Mostramos el total del socio como la métrica principal
+                st.metric(label=f"Total {socio}", value=f"${total_socio:,.2f}")
+                
+                # El desglose por método de pago queda dentro de un expander
+                with st.expander("Ver desglose"):
+                    for metodo, total in sorted(metodos.items()):
+                        st.write(f"{metodo}: **${float(total):,.2f}**")
                     
 # --- Módulo: tab_caja_final ---
 def calcular_montos_finales_logica(conteo_detalle):
