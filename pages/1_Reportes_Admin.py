@@ -28,11 +28,15 @@ st.title("Panel de Reportes Administrativos")
 # --- FUNCIONES DE CACHÉ PARA CARGAR DATOS DE FILTROS ---
 @st.cache_data(ttl=600) 
 def cargar_filtros_data_basicos():
+    """ Carga todos los datos maestros para los filtros. """
     sucursales, _ = database.obtener_sucursales()
     usuarios, _ = database.admin_get_lista_usuarios()
     metodos, _ = database.obtener_metodos_pago()
     socios, _ = database.admin_get_todos_socios()
-    return sucursales, usuarios, metodos, socios
+    # Línea que faltaba:
+    categorias, _ = database.admin_get_todas_categorias()
+    # Ahora devuelve 5 elementos:
+    return sucursales, usuarios, metodos, socios, categorias
 
 @st.cache_data(ttl=600) 
 def cargar_filtros_data_cde():
