@@ -235,7 +235,8 @@ def guardar_verificacion_pagos(cierre_id, datos_verificacion):
 
 def obtener_metodos_pago():
     try:
-        response = supabase.table('metodos_pago').select('id, nombre').order('nombre').execute()
+        # Añadimos 'tipo' y 'is_activo' a la consulta
+        response = supabase.table('metodos_pago').select('id, nombre, tipo, is_activo').order('nombre').execute()
         return response.data, None
     except Exception as e:
         return [], f"Error al obtener métodos de pago: {e}"
