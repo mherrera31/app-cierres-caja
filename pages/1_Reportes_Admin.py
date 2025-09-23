@@ -58,113 +58,81 @@ with tab_op:
     st.header("Log de Cierres de Caja Operativos")
 
     # --- NUEVAS FUNCIONES AUXILIARES DE REPORTE ---
-    def op_mostrar_tab_resumen(cierre_dict):
-        st.subheader("Resumen del Cierre")
-        nota_discrepancia = cierre_dict.get('nota_discrepancia')
-        if nota_discrepancia:
-            st.warning(f"⚠️ **Nota de Admin por Descuadre:** {nota_discrepancia}")
+    def op_mostrar_reporte_denominaciones(titulo, data_dict):
+    st.subheader(titulo)
+    if not data_dict or not data_dict.get('detalle'):
+        st.info("No hay datos de conteo para este paso.")
+        return
+    df_data = [{"Denominación": k, "Cantidad": v.get('cantidad'), "Subtotal": v.get('subtotal')} for k, v in data_dict.get('detalle', {}).items()]
+    df = pd.DataFrame(df_data)
+    st.dataframe(df, hide_index=True, use_container_width=True)
+    st.metric(label=f"TOTAL CONTADO ({titulo})", value=f"${float(data_dict.get('total', 0)):,.2f}")
 
-        resumen_guardado = cierre_dict.get('resumen_del_dia')
-        if resumen_guardado:
-            st.info("Mostrando datos del nuevo reporte de resumen guardado.")
-            total_rayo = float(resumen_guardado.get('total_rayo_externo', 0))
-            socios_data = resumen_guardado.get('totales_por_socio', [])
-            total_socios = sum(float(s.get('total', 0)) for s in socios_data)
-            
-            col1, col2 = st.columns(2)
-            col1.metric("Total Verificable (POS + Socios)", f"${total_rayo:,.2f}")
-            col2.metric("Total Ingresos por Socios", f"${total_socios:,.2f}")
-            
-            with st.expander("Ver desglose del resumen guardado en JSON"):
-                st.json(resumen_guardado)
-        else:
-            st.info("Mostrando datos de un cierre antiguo (sin resumen guardado).")
-            col1, col2 = st.columns(2)
-            col1.metric("A Depositar", f"${float(cierre_dict.get('total_a_depositar', 0)):,.2f}")
-            col2.metric("Saldo para Siguiente Día", f"${float(cierre_dict.get('saldo_para_siguiente_dia', 0)):,.2f}")
+def op_mostrar_tab_resumen(cierre_dict):
+    st.subheader("Resumen del Cierre")
+    nota_discrepancia = cierre_dict.get('nota_discrepancia')
+    if nota_discrepancia:
+        st.warning(f"⚠️ **Nota de Admin por Descuadre:** {nota_discrepancia}")
 
-    def op_mostrar_reporte_verificacion(data_dict):
-        st.subheader("Reporte de Verificación de Pagos")
-        if not data_dict:
-            st.info("No hay datos de verificación guardados.")
-            return
+    resumen_guardado = cierre_dict.get('resumen_del_dia')
+    if resumen_guardado:
+        st.info("Mostrando datos del nuevo reporte de resumen guardado.")
+        total_rayo = float(resumen_guardado.get('total_rayo_externo', 0))
+        socios_data = resumen_guardado.get('totales_por_socio', [])
+        total_socios = sum(float(s.get('total', 0)) for s in socios_data)
         
-        st.markdown("**Verificación Consolidada**")
-        verificados = data_dict.get('verificacion_consolidada', [])
-        if not verificados: st.markdown("*No se realizaron verificaciones.*")
-        for item in verificados:
-            match_texto = "OK ✔️" if item.get('match_ok') else "FALLO ❌"
-            st.markdown(f"**{item.get('metodo')}**")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Sistema", f"${item.get('total_sistema', 0):,.2f}")
-            col2.metric("Total Reportado", f"${item.get('total_reportado', 0):,.2f}")
-            col3.metric("Estado", match_texto)
-            if item.get('url_foto'): st.markdown(f"**[Ver Foto Adjunta]({item.get('url_foto')})**")
-            st.divider()
+        col1, col2 = st.columns(2)
+        col1.metric("Total Verificable (POS + Socios)", f"${total_rayo:,.2f}")
+        col2.metric("Total Ingresos por Socios", f"${total_socios:,.2f}")
+        
+        with st.expander("Ver desglose del resumen guardado en JSON"):
+            st.json(resumen_guardado)
+    else:
+        st.info("Mostrando datos de un cierre antiguo (sin resumen guardado).")
+        col1, col2 = st.columns(2)
+        # CORRECCIÓN: Se añade 'or 0' para evitar el error con valores nulos
+        a_depositar = float(cierre_dict.get('total_a_depositar') or 0)
+        saldo_siguiente = float(cierre_dict.get('saldo_para_siguiente_dia') or 0)
+        col1.metric("A Depositar", f"${a_depositar:,.2f}")
+        col2.metric("Saldo para Siguiente Día", f"${saldo_siguiente:,.2f}")
 
-        st.markdown("**Reporte Informativo Completo**")
-        reporte_info = data_dict.get('reporte_informativo_completo', {})
-        if not reporte_info: st.markdown("*No hay datos informativos.*")
-        with st.expander("Ver desglose informativo detallado en JSON"):
-            st.json(reporte_info)
-
-    def op_mostrar_reporte_gastos(cierre_id):
-        st.subheader("Reporte de Gastos")
-        gastos_lista, err_g = database.obtener_gastos_del_cierre(cierre_id)
-        if err_g: st.error(f"Error: {err_g}")
-        elif not gastos_lista: st.info("No se registraron gastos.")
-        else:
-            df_data = [{"Categoría": g.get('gastos_categorias', {}).get('nombre', 'N/A'), "Monto": g.get('monto', 0), "Notas": g.get('notas', '')} for g in gastos_lista]
-            df = pd.DataFrame(df_data)
-            st.dataframe(df, hide_index=True, use_container_width=True)
-            st.metric("TOTAL GASTOS", f"${df['Monto'].sum():,.2f}")
-
-    # --- Filtros (Operativo) ---
-    sucursales_db_op, usuarios_db_op, _, _, _ = cargar_filtros_data_basicos()
-    opciones_sucursal_op = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db_op}}
-    opciones_usuario_op = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db_op}}
-
-    col_filtros1_op, col_filtros2_op = st.columns(2)
-    with col_filtros1_op:
-        fecha_ini_op = st.date_input("Fecha Desde", value=None, key="op_fecha_ini")
-        sel_sucursal_nombre_op = st.selectbox("Sucursal (Operativa)", options=opciones_sucursal_op.keys(), key="op_sucursal")
-    with col_filtros2_op:
-        fecha_fin_op = st.date_input("Fecha Hasta", value=None, key="op_fecha_fin")
-        sel_usuario_nombre_op = st.selectbox("Usuario", options=opciones_usuario_op.keys(), key="op_usuario")
+def op_mostrar_reporte_verificacion(data_dict):
+    # Esta función ya estaba correcta, la incluimos para que el bloque sea completo
+    st.subheader("Reporte de Verificación de Pagos")
+    if not data_dict:
+        st.info("No hay datos de verificación guardados.")
+        return
     
-    solo_disc_op = st.checkbox("Mostrar solo cierres con discrepancia inicial")
-    
-    if st.button("Buscar Cierres Operativos", type="primary"):
-        str_ini_op = fecha_ini_op.strftime("%Y-%m-%d") if fecha_ini_op else None
-        str_fin_op = fecha_fin_op.strftime("%Y-%m-%d") if fecha_fin_op else None
-        sucursal_id_filtrar_op = opciones_sucursal_op[sel_sucursal_nombre_op]
-        usuario_id_filtrar_op = opciones_usuario_op[sel_usuario_nombre_op]
-        
-        cierres_op, error_op = database.admin_buscar_cierres_filtrados(
-            fecha_inicio=str_ini_op, fecha_fin=str_fin_op,
-            sucursal_id=sucursal_id_filtrar_op, usuario_id=usuario_id_filtrar_op,
-            solo_discrepancia=solo_disc_op
-        )
-        
-        if error_op: st.error(f"Error de DB: {error_op}")
-        elif not cierres_op: st.warning("No se encontraron cierres operativos con esos filtros.")
-        else:
-            for cierre in cierres_op:
-                user_nombre = cierre.get('perfiles', {}).get('nombre', 'N/A')
-                suc_nombre = cierre.get('sucursales', {}).get('sucursal', 'N/A')
-                titulo_expander = f"📅 {cierre['fecha_operacion']} | 👤 {user_nombre} | 🏠 {suc_nombre} | ({cierre['estado']})"
-                
-                with st.expander(titulo_expander):
-                    t_res, t_ini, t_fin, t_verif, t_gastos = st.tabs([
-                        "Resumen", "Caja Inicial", "Caja Final", "Verificación", "Gastos"
-                    ])
+    st.markdown("**Verificación Consolidada**")
+    verificados = data_dict.get('verificacion_consolidada', [])
+    if not verificados: st.markdown("*No se realizaron verificaciones.*")
+    for item in verificados:
+        match_texto = "OK ✔️" if item.get('match_ok') else "FALLO ❌"
+        st.markdown(f"**{item.get('metodo')}**")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Sistema", f"${item.get('total_sistema', 0):,.2f}")
+        col2.metric("Total Reportado", f"${item.get('total_reportado', 0):,.2f}")
+        col3.metric("Estado", match_texto)
+        if item.get('url_foto'): st.markdown(f"**[Ver Foto Adjunta]({item.get('url_foto')})**")
+        st.divider()
 
-                    # --- Lógica de renderizado actualizada ---
-                    with t_res: op_mostrar_tab_resumen(cierre)
-                    with t_ini: st.json(cierre.get('saldo_inicial_detalle'), expanded=False)
-                    with t_fin: st.json(cierre.get('saldo_final_detalle'), expanded=False)
-                    with t_verif: op_mostrar_reporte_verificacion(cierre.get('verificacion_pagos_detalle'))
-                    with t_gastos: op_mostrar_reporte_gastos(cierre['id'])
+    st.markdown("**Reporte Informativo Completo**")
+    reporte_info = data_dict.get('reporte_informativo_completo', {})
+    if not reporte_info: st.markdown("*No hay datos informativos.*")
+    with st.expander("Ver desglose informativo detallado en JSON"):
+        st.json(reporte_info)
+
+def op_mostrar_reporte_gastos(cierre_id):
+    # Esta función ya estaba correcta, la incluimos para que el bloque sea completo
+    st.subheader("Reporte de Gastos")
+    gastos_lista, err_g = database.obtener_gastos_del_cierre(cierre_id)
+    if err_g: st.error(f"Error: {err_g}")
+    elif not gastos_lista: st.info("No se registraron gastos.")
+    else:
+        df_data = [{"Categoría": g.get('gastos_categorias', {}).get('nombre', 'N/A'), "Monto": g.get('monto', 0), "Notas": g.get('notas', '')} for g in gastos_lista]
+        df = pd.DataFrame(df_data)
+        st.dataframe(df, hide_index=True, use_container_width=True)
+        st.metric("TOTAL GASTOS", f"${df['Monto'].sum():,.2f}")
 # ==========================================================
 # PESTAÑA 2: REPORTE CDE (NUEVO MÓDULO)
 # ==========================================================
