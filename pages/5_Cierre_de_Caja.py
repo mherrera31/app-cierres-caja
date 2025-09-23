@@ -1230,7 +1230,7 @@ def render_tab_verificacion():
     datos_verif, error = cargar_datos_verificacion(cierre_id)
     if error: st.error(error); st.stop()
         
-    datos_guardados = cierre_actual.get('verificacion_pagos_detalle', {})
+    datos_guardados = cierre_actual.get('verificacion_pagos_detalle') or {}
     
     st.subheader("Estado de Conciliación General")
     conteo_final_dict = cierre_actual.get('saldo_final_detalle') or {}
