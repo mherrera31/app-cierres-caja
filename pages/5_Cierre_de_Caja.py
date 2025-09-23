@@ -752,6 +752,17 @@ def render_tab_compras():
 
 
 # --- Módulo: tab_resumen ---
+@st.cache_data(ttl=600)
+def cargar_info_metodos_pago():
+    """Carga todos los métodos de pago y devuelve un set con los nombres de los internos."""
+    metodos, err = database.obtener_metodos_pago() # Esta es la función que ya corregimos
+    if err:
+        st.error(f"Error cargando info de métodos de pago: {err}")
+        return set()
+    
+    internos = {m['nombre'] for m in metodos if m.get('tipo') == 'interno'}
+    return internos
+
 def _ejecutar_calculo_resumen(cierre_id, cierre_actual_obj):
     with st.spinner("Calculando resumen con datos actualizados..."):
         saldo_inicial = Decimal(str(cierre_actual_obj.get('saldo_inicial_efectivo') or 0.0))
@@ -811,12 +822,10 @@ def render_tab_resumen():
     st.subheader("Dashboard de Movimientos del Día")
     
     if st.button("🔄 Refrescar Dashboard", type="primary"):
-        # Limpiamos el caché si existe uno para esta función
         if 'dashboard_data' in st.session_state:
             del st.session_state['dashboard_data']
         st.rerun()
 
-    # Cargar los datos del dashboard
     if 'dashboard_data' not in st.session_state:
         with st.spinner("Calculando totales del día..."):
             data, err = database.get_dashboard_resumen_data(cierre_id)
@@ -834,7 +843,17 @@ def render_tab_resumen():
     # --- Sección 1: Ingresos de Rayo (POS) ---
     st.markdown("### Ingresos de Rayo (POS)")
     
-    total_general_rayo = sum(totales_rayo.values())
+    # --- INICIO DE LA MODIFICACIÓN ---
+    # 1. Obtenemos la lista de métodos internos
+    metodos_internos = cargar_info_metodos_pago()
+
+    # 2. Calculamos el total excluyendo los métodos internos
+    total_general_rayo = sum(
+        total for metodo, total in totales_rayo.items() 
+        if metodo not in metodos_internos
+    )
+    # --- FIN DE LA MODIFICACIÓN ---
+
     st.metric("Total General de Rayo", f"${total_general_rayo:,.2f}")
 
     if not totales_rayo:
@@ -842,24 +861,28 @@ def render_tab_resumen():
     else:
         with st.expander("Ver desglose de Rayo (POS) por método de pago"):
             for metodo, total in sorted(totales_rayo.items()):
-                st.metric(label=metodo, value=f"${total:,.2f}")
+                # --- INICIO DE LA MODIFICACIÓN ---
+                # 3. Añadimos una etiqueta "(Interno)" para mayor claridad
+                label = f"{metodo} (Interno)" if metodo in metodos_internos else metodo
+                st.metric(label=label, value=f"${float(total):,.2f}")
+                # --- FIN DE LA MODIFICACIÓN ---
 
     st.divider()
 
-    # --- Sección 2: Ingresos por Socios ---
+    # --- Sección 2: Ingresos por Socios (sin cambios) ---
     st.markdown("### Ingresos por Socios (Solo métodos externos)")
-
-    total_general_socios = sum(sum(metodos.values()) for metodos in totales_socios.values())
+    # ... (El resto de la función no necesita cambios)
+    total_general_socios = sum(sum(Decimal(str(v)) for v in metodos.values()) for metodos in totales_socios.values())
     st.metric("Total General de Socios", f"${total_general_socios:,.2f}")
 
     if not totales_socios:
         st.info("No se encontraron ingresos de Socios para hoy.")
     else:
         for socio, metodos in sorted(totales_socios.items()):
-            total_socio = sum(metodos.values())
+            total_socio = sum(Decimal(str(v)) for v in metodos.values())
             with st.expander(f"**Socio: {socio}** (Total: ${total_socio:,.2f})"):
                 for metodo, total in sorted(metodos.items()):
-                    st.metric(label=metodo, value=f"${total:,.2f}")
+                    st.metric(label=metodo, value=f"${float(total):,.2f}")
                     
 # --- Módulo: tab_caja_final ---
 def calcular_montos_finales_logica(conteo_detalle):
