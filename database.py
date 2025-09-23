@@ -307,9 +307,13 @@ def subir_archivo_storage(cierre_id, metodo_pago_nombre, ruta_archivo_local):
     except Exception as e:
         return None, f"Error al subir archivo a Storage: {e}"
     
-def finalizar_cierre_en_db(cierre_id):
+def finalizar_cierre_en_db(cierre_id, nota_discrepancia=None):
     try:
-        datos = {"estado": "CERRADO", "fecha_hora_cierre_real": datetime.now(pytz.timezone('America/Panama')).isoformat()}
+        datos = {
+            "estado": "CERRADO",
+            "fecha_hora_cierre_real": datetime.now(pytz.timezone('America/Panama')).isoformat(),
+            "nota_discrepancia": nota_discrepancia
+        }
         response = supabase.table('cierres_caja').update(datos).eq('id', cierre_id).execute()
         return response.data, None
     except Exception as e:
