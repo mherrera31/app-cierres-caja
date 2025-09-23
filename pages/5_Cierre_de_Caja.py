@@ -811,7 +811,7 @@ def _ejecutar_calculo_resumen(cierre_id, cierre_actual_obj):
 
 def render_tab_resumen():
     """
-    Nueva versión del Resumen, ahora como un "Dashboard del Día".
+    Dashboard del Día con lógica para construir y guardar un resumen en JSON.
     """
     cierre_actual = st.session_state.get('cierre_actual_objeto')
     if not cierre_actual:
@@ -821,11 +821,14 @@ def render_tab_resumen():
 
     st.subheader("Dashboard de Movimientos del Día")
     
+    # Lógica de Refresco
     if st.button("🔄 Refrescar Dashboard", type="primary"):
         if 'dashboard_data' in st.session_state:
             del st.session_state['dashboard_data']
+        st.session_state['guardar_resumen_flag'] = True # Activa la bandera para guardar
         st.rerun()
 
+    # Carga de datos
     if 'dashboard_data' not in st.session_state:
         with st.spinner("Calculando totales del día..."):
             data, err = database.get_dashboard_resumen_data(cierre_id)
@@ -833,7 +836,8 @@ def render_tab_resumen():
                 st.error(err)
                 st.stop()
             st.session_state['dashboard_data'] = data
-    
+            st.session_state['guardar_resumen_flag'] = True # Activa la bandera al cargar por primera vez
+
     data = st.session_state['dashboard_data']
     totales_rayo = data.get('rayo', {})
     totales_socios = data.get('socios', {})
@@ -842,18 +846,11 @@ def render_tab_resumen():
 
     # --- Sección 1: Ingresos de Rayo (POS) ---
     st.markdown("### Ingresos de Rayo (POS)")
-    
-    # --- INICIO DE LA MODIFICACIÓN ---
-    # 1. Obtenemos la lista de métodos internos
     metodos_internos = cargar_info_metodos_pago()
-
-    # 2. Calculamos el total excluyendo los métodos internos
     total_general_rayo = sum(
         total for metodo, total in totales_rayo.items() 
         if metodo not in metodos_internos
     )
-    # --- FIN DE LA MODIFICACIÓN ---
-
     st.metric("Total General de Rayo", f"${total_general_rayo:,.2f}")
 
     if not totales_rayo:
@@ -861,36 +858,57 @@ def render_tab_resumen():
     else:
         with st.expander("Ver desglose de Rayo (POS) por método de pago"):
             for metodo, total in sorted(totales_rayo.items()):
-                # --- INICIO DE LA MODIFICACIÓN ---
-                # 3. Añadimos una etiqueta "(Interno)" para mayor claridad
                 label = f"{metodo} (Interno)" if metodo in metodos_internos else metodo
                 st.metric(label=label, value=f"${float(total):,.2f}")
-                # --- FIN DE LA MODIFICACIÓN ---
 
     st.divider()
-    
+
     # --- Sección 2: Ingresos por Socios ---
     st.markdown("### Ingresos por Socios (Solo métodos externos)")
-
     if not totales_socios:
         st.info("No se encontraron ingresos de Socios para hoy.")
     else:
-        # Creamos columnas para una mejor distribución visual
         num_socios = len(totales_socios)
         cols = st.columns(num_socios if num_socios > 0 else 1)
-        
-        # Iteramos sobre cada socio y lo mostramos en su propia columna
         for i, (socio, metodos) in enumerate(sorted(totales_socios.items())):
             with cols[i]:
                 total_socio = sum(Decimal(str(v)) for v in metodos.values())
-                
-                # Mostramos el total del socio como la métrica principal
                 st.metric(label=f"Total {socio}", value=f"${total_socio:,.2f}")
-                
-                # El desglose por método de pago queda dentro de un expander
                 with st.expander("Ver desglose"):
                     for metodo, total in sorted(metodos.items()):
                         st.write(f"{metodo}: **${float(total):,.2f}**")
+    
+    # --- BLOQUE PARA CONSTRUIR Y GUARDAR EL JSON ---
+    if st.session_state.get('guardar_resumen_flag'):
+        # 1. Construir el objeto JSON
+        resumen_json = {
+            "total_rayo_externo": float(total_general_rayo),
+            "desglose_rayo": [
+                {
+                    "metodo": metodo,
+                    "total": float(total),
+                    "tipo": "interno" if metodo in metodos_internos else "externo"
+                } for metodo, total in totales_rayo.items()
+            ],
+            "totales_por_socio": [
+                {
+                    "socio": socio,
+                    "total": float(sum(Decimal(str(v)) for v in metodos.values())),
+                    "desglose": [
+                        {"metodo": m, "total": float(t)} for m, t in metodos.items()
+                    ]
+                } for socio, metodos in totales_socios.items()
+            ]
+        }
+        
+        # 2. Guardar en la base de datos
+        _, err_save = database.guardar_resumen_del_dia(cierre_id, resumen_json)
+        if err_save:
+            st.error(f"No se pudo guardar el resumen: {err_save}")
+        
+        # 3. Desactivar la bandera para no volver a guardar hasta la próxima recarga
+        del st.session_state['guardar_resumen_flag']
+
                     
 # --- Módulo: tab_caja_final ---
 def calcular_montos_finales_logica(conteo_detalle):
