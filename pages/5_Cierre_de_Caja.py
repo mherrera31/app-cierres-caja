@@ -950,58 +950,60 @@ def calcular_montos_finales_logica(conteo_detalle):
 
 def calcular_saldo_teorico_efectivo(cierre_id, saldo_inicial_efectivo):
     """
-    Calcula el saldo teórico de efectivo basándose en la bandera 'es_efectivo'
-    de los métodos de pago para mayor robustez.
+    VERSIÓN DE DEPURACIÓN para mostrar los componentes del cálculo.
     """
-    # 1. Obtener las reglas de todos los métodos de pago
+    st.warning("MODO DEPURACIÓN ACTIVADO")
+
+    # 1. Obtener reglas de métodos de pago
     metodos_pago_data, err_mp = database.obtener_metodos_pago_con_flags()
     if err_mp:
         st.error(f"Error crítico al cargar las reglas de métodos de pago: {err_mp}")
-        # Detener o retornar un valor de error es crucial aquí
         st.stop()
+    metodos_de_efectivo = {m['nombre'] for m in metodos_pago_data if m.get('es_efectivo')}
+    st.write(f"**Reglas Cargadas:** Se consideran efectivo los siguientes métodos: `{metodos_de_efectivo}`")
 
-    # 2. Crear un conjunto de nombres de métodos que son considerados efectivo
-    metodos_de_efectivo = {
-        m['nombre'] for m in metodos_pago_data if m.get('es_efectivo')
-    }
-
-    # 3. Sumar Ingresos de Ventas (POS) que sean efectivo
+    # 2. Sumar Ingresos de Ventas (POS)
     pagos_venta, err_p = database.obtener_pagos_del_cierre(cierre_id)
     total_pagos_venta_efectivo = Decimal('0.00')
     if not err_p and pagos_venta:
         for pago in pagos_venta:
             metodo_nombre = pago.get('metodo_pago', {}).get('nombre')
-            # LÓGICA MEJORADA: Comprueba si el método está en nuestro conjunto de efectivo
             if metodo_nombre in metodos_de_efectivo:
                 total_pagos_venta_efectivo += Decimal(str(pago.get('monto', 0.0)))
+    st.write(f"**A. Saldo Inicial:** `${Decimal(str(saldo_inicial_efectivo)):,.2f}`")
+    st.write(f"**B. Suma de Efectivo por Ventas (POS):** `${total_pagos_venta_efectivo:,.2f}`")
 
-    # 4. Sumar Ingresos Adicionales de Socios que sean efectivo (y que apliquen)
+
+    # 3. Sumar Ingresos Adicionales de Socios
     ingresos_adicionales, err_i = database.obtener_ingresos_adicionales_del_cierre(cierre_id)
     total_ingresos_adicionales_efectivo = Decimal('0.00')
     if not err_i and ingresos_adicionales:
         for ingreso in ingresos_adicionales:
             metodo_nombre = ingreso.get('metodo_pago')
             reglas_socio = ingreso.get('socios') or {}
-            # LÓGICA MEJORADA: Usa el conjunto Y la regla del socio
             if (metodo_nombre in metodos_de_efectivo and 
                 reglas_socio.get('afecta_conteo_efectivo') == True):
                 total_ingresos_adicionales_efectivo += Decimal(str(ingreso.get('monto', 0.0)))
+    st.write(f"**C. Suma de Efectivo por Ingresos Adicionales:** `${total_ingresos_adicionales_efectivo:,.2f}`")
 
-    # 5. Restar Gastos (esto no cambia)
+    # 4. Restar Gastos
     gastos_data, err_g = database.obtener_gastos_del_cierre(cierre_id)
     total_gastos = Decimal('0.00')
     if not err_g and gastos_data:
         for gasto in gastos_data:
             total_gastos += Decimal(str(gasto.get('monto', 0.0)))
+    st.write(f"**D. Total de Gastos a Restar:** `-${total_gastos:,.2f}`")
             
-    # 6. Fórmula Final (no cambia)
+    # 5. Fórmula Final
     saldo_teorico = (Decimal(str(saldo_inicial_efectivo)) + 
                      total_pagos_venta_efectivo + 
                      total_ingresos_adicionales_efectivo - 
                      total_gastos)
+    
+    st.success(f"**SALDO TEÓRICO CALCULADO (A+B+C-D):** `${saldo_teorico:,.2f}`")
+    st.divider()
                      
     return saldo_teorico
-
 def render_tab_caja_final():
     cierre_actual = st.session_state.get('cierre_actual_objeto')
     if not cierre_actual:
