@@ -1023,7 +1023,7 @@ def admin_buscar_resumenes_para_analisis(fecha_inicio=None, fecha_fin=None, sucu
     try:
         query = supabase.table('cierres_caja').select(
             'fecha_operacion, resumen_del_dia, sucursales(sucursal), perfiles(nombre)'
-        ).not_.is_('resumen_del_dia', 'is', None) # Solo trae cierres con el nuevo resumen
+        ).not_.is_('resumen_del_dia', None) # Solo trae cierres con el nuevo resumen
 
         if fecha_inicio:
             query = query.gte('fecha_operacion', fecha_inicio)
