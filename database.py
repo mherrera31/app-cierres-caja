@@ -1039,14 +1039,18 @@ def admin_buscar_resumenes_para_analisis(fecha_inicio=None, fecha_fin=None, sucu
     except Exception as e:
         return None, f"Error al buscar resúmenes para análisis: {e}"
 
-def get_registros_carga_rango(sucursal_id, fecha_inicio=None, fecha_fin=None):
+def get_registros_carga_rango(lista_sucursal_ids, fecha_inicio=None, fecha_fin=None):
     """
-    Obtiene el historial de registros de carga para una sucursal en un rango de fechas.
+    Obtiene el historial de registros de carga para una o varias sucursales en un rango de fechas.
     """
     try:
         query = supabase.table('cierre_registros_carga').select(
-            'id, fecha_operacion, carga_facturada, carga_retirada, carga_sin_retirar, perfiles(nombre)'
-        ).eq('sucursal_id', sucursal_id)
+            'id, fecha_operacion, carga_facturada, carga_retirada, carga_sin_retirar, perfiles(nombre), sucursales(sucursal)'
+        )
+        
+        # Usa el filtro .in_() para aceptar una lista de IDs
+        if lista_sucursal_ids:
+            query = query.in_('sucursal_id', lista_sucursal_ids)
         
         if fecha_inicio:
             query = query.gte('fecha_operacion', fecha_inicio)
