@@ -362,67 +362,103 @@ with tab_cde:
 # PESTAÑA 3: ANÁLISIS DE INGRESOS
 # ==========================================================
 with tab_analisis:
-    st.header("Análisis de Ingresos (Desde Resumen Guardado)")
+    st.header("Análisis de Ingresos Detallado")
 
-    # --- Filtros Principales ---
-    st.subheader("Filtros")
-    sucursales_db, usuarios_db, _, _, _ = cargar_filtros_data_basicos()
+    @st.cache_data(ttl=300)
+    def cargar_y_procesar_datos_ingresos(fecha_inicio=None, fecha_fin=None, sucursal_id=None, usuario_id=None):
+        cierres, err = database.admin_buscar_resumenes_para_analisis(
+            fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
+            sucursal_id=sucursal_id, usuario_id=usuario_id
+        )
+        if err:
+            st.error(f"No se pudieron cargar los datos de ingresos: {err}")
+            return pd.DataFrame()
+        
+        if not cierres:
+            return pd.DataFrame()
+
+        flat_data = []
+        for cierre in cierres:
+            resumen = cierre.get('resumen_del_dia', {})
+            info_base = {
+                "Fecha": cierre['fecha_operacion'],
+                "Sucursal": cierre.get('sucursales', {}).get('sucursal', 'N/A'),
+                "Usuario": cierre.get('perfiles', {}).get('nombre', 'N/A')
+            }
+            for item in resumen.get('desglose_rayo', []):
+                flat_data.append({**info_base, "Fuente": "Rayo (POS)", "Metodo": item['metodo'], "Tipo": item['tipo'], "Total": item['total']})
+            for socio in resumen.get('totales_por_socio', []):
+                for desglose in socio.get('desglose', []):
+                    flat_data.append({**info_base, "Fuente": socio['socio'], "Metodo": desglose['metodo'], "Tipo": "externo", "Total": desglose['total']})
+        
+        df = pd.DataFrame(flat_data)
+        if not df.empty:
+            df['Fecha'] = pd.to_datetime(df['Fecha']).dt.date
+            df['Total'] = pd.to_numeric(df['Total'])
+        return df
+
+    # --- Cargar datos para los filtros ---
+    sucursales_db, usuarios_db, metodos_db, socios_db, _ = cargar_filtros_data_basicos()
     op_suc = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db}}
     op_user = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db}}
+    
+    # --- Interfaz de Filtros ---
+    st.subheader("Filtros")
+    col1, col2 = st.columns(2)
+    with col1:
+        fecha_ini = st.date_input("Fecha Desde", value=None, key="analisis_fi_final")
+        sel_sucursal_nombre = st.selectbox("Sucursal", options=op_suc.keys(), key="analisis_s_final")
+        sel_fuente = st.selectbox("Fuente de Ingreso (POS, Socios)", options=["TODAS"] + ["Rayo (POS)"] + [s['nombre'] for s in socios_db], key="analisis_fuente_final")
+    with col2:
+        fecha_fin = st.date_input("Fecha Hasta", value=None, key="analisis_ff_final")
+        sel_usuario_nombre = st.selectbox("Usuario", options=op_user.keys(), key="analisis_u_final")
+        sel_metodo = st.selectbox("Método de Pago", options=["TODOS"] + [m['nombre'] for m in metodos_db], key="analisis_metodo_final")
 
-    col1, col2, col3 = st.columns(3)
-    fecha_ini = col1.date_input("Fecha Desde", value=None, key="analisis_fi_new")
-    fecha_fin = col2.date_input("Fecha Hasta", value=None, key="analisis_ff_new")
-    sel_suc_id = op_suc[col3.selectbox("Sucursal", options=op_suc.keys(), key="analisis_s_new")]
-    sel_user_id = op_user[st.selectbox("Usuario", options=op_user.keys(), key="analisis_u_new")]
-
-    if st.button("Generar Reporte de Ingresos", type="primary"):
+    if st.button("Generar Reporte de Ingresos", type="primary", key="btn_analisis_final"):
         str_ini = fecha_ini.strftime('%Y-%m-%d') if fecha_ini else None
         str_fin = fecha_fin.strftime('%Y-%m-%d') if fecha_fin else None
+        sucursal_id_filtrar = op_suc[sel_sucursal_nombre]
+        usuario_id_filtrar = op_user[sel_usuario_nombre]
 
-        with st.spinner("Procesando resúmenes de cierre..."):
-            cierres, err = database.admin_buscar_resumenes_para_analisis(
-                fecha_inicio=str_ini, fecha_fin=str_fin,
-                sucursal_id=sel_suc_id, usuario_id=sel_user_id
-            )
+        # Cargar los datos ya filtrados por fecha, sucursal y usuario
+        df_ingresos = cargar_y_procesar_datos_ingresos(
+            fecha_inicio=str_ini, fecha_fin=str_fin,
+            sucursal_id=sucursal_id_filtrar, usuario_id=usuario_id_filtrar
+        )
 
-        if err:
-            st.error(f"Error al cargar los datos: {err}")
-        elif not cierres:
-            st.warning("No se encontraron cierres con un resumen de ingresos para los filtros seleccionados.")
+        if df_ingresos.empty:
+            st.warning("No se encontraron ingresos con los filtros seleccionados.")
         else:
-            # --- Procesamiento de datos (Desempaquetar el JSON) ---
-            flat_data = []
-            for cierre in cierres:
-                resumen = cierre.get('resumen_del_dia', {})
-                info_base = {
-                    "Fecha": cierre['fecha_operacion'],
-                    "Sucursal": cierre.get('sucursales', {}).get('sucursal', 'N/A'),
-                    "Usuario": cierre.get('perfiles', {}).get('nombre', 'N/A')
-                }
-                
-                for item in resumen.get('desglose_rayo', []):
-                    flat_data.append({**info_base, "Fuente": "Rayo (POS)", "Metodo": item['metodo'], "Tipo": item['tipo'], "Total": item['total']})
-                
-                for socio in resumen.get('totales_por_socio', []):
-                    for desglose in socio.get('desglose', []):
-                        flat_data.append({**info_base, "Fuente": socio['socio'], "Metodo": desglose['metodo'], "Tipo": "externo", "Total": desglose['total']})
+            # Aplicar filtros adicionales de Fuente y Método
+            df_filtrado = df_ingresos.copy()
+            if sel_fuente != "TODAS":
+                df_filtrado = df_filtrado[df_filtrado['Fuente'] == sel_fuente]
+            if sel_metodo != "TODOS":
+                df_filtrado = df_filtrado[df_filtrado['Metodo'] == sel_metodo]
 
-            df = pd.DataFrame(flat_data)
-            df['Total'] = pd.to_numeric(df['Total'])
-
+            # --- Mostrar Resultados ---
             st.divider()
             st.subheader("Resultados del Análisis")
-            st.metric("Ingreso Total (según filtros)", f"${df['Total'].sum():,.2f}")
 
-            st.markdown("**Totales por Fuente de Ingreso**")
-            st.dataframe(df.groupby('Fuente')['Total'].sum().sort_values(ascending=False).map('${:,.2f}'.format))
+            if df_filtrado.empty:
+                st.warning("La combinación de filtros no arrojó resultados.")
+            else:
+                st.metric("Ingreso Total (filtrado)", f"${df_filtrado['Total'].sum():,.2f}")
 
-            st.markdown("**Totales por Método de Pago**")
-            st.dataframe(df.groupby('Metodo')['Total'].sum().sort_values(ascending=False).map('${:,.2f}'.format))
+                col_t1, col_t2 = st.columns(2)
+                with col_t1:
+                    st.markdown("**Totales por Fuente de Ingreso**")
+                    st.dataframe(df_filtrado.groupby('Fuente')['Total'].sum().sort_values(ascending=False).map('${:,.2f}'.format))
+                with col_t2:
+                    st.markdown("**Totales por Método de Pago**")
+                    st.dataframe(df_filtrado.groupby('Metodo')['Total'].sum().sort_values(ascending=False).map('${:,.2f}'.format))
 
-            with st.expander("Ver detalle completo"):
-                st.dataframe(df.style.format({"Total": "${:,.2f}"}), hide_index=True, use_container_width=True)
+                st.subheader("Ingresos por Día")
+                ingresos_por_dia = df_filtrado.groupby('Fecha')['Total'].sum()
+                st.bar_chart(ingresos_por_dia)
+
+                with st.expander("Ver detalle completo de ingresos"):
+                    st.dataframe(df_filtrado.style.format({"Total": "${:,.2f}"}), hide_index=True, use_container_width=True)
 
 # ==========================================================
 # PESTAÑA 4: REPORTE DE GASTOS (NUEVA)
