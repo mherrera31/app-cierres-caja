@@ -42,11 +42,12 @@ def cargar_filtros_data_cde():
     return sucursales, usuarios
 
 # --- PESTAÑAS PRINCIPALES ---
-tab_op, tab_cde, tab_analisis, tab_gastos = st.tabs([
+tab_op, tab_cde, tab_analisis, tab_gastos, tab_delivery = st.tabs([
     "📊 Cierres Operativos (Log)", 
     "🏦 Cierres CDE (Log)",
     "📈 Análisis de Ingresos",
-    "💸 Reporte de Gastos"
+    "💸 Reporte de Gastos",
+    "🛵 Reporte de Delivery"
 ])
 
 # ==========================================================
@@ -474,4 +475,85 @@ with tab_gastos:
             # Mostrar gráfico
             st.subheader("Total de Gastos por Categoría")
             df_grouped = df.groupby("Categoría")["Monto"].sum().sort_values(ascending=False)
+            st.bar_chart(df_grouped)
+
+
+# ==========================================================
+# PESTAÑA 5: REPORTE DE DELIVERY (NUEVA)
+# ==========================================================
+with tab_delivery:
+    st.header("Reporteador de Deliveries")
+
+    # --- Cargar datos para los filtros ---
+    sucursales_db, usuarios_db, _, socios_db, _ = cargar_filtros_data_basicos()
+    opciones_sucursal = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db}}
+    opciones_usuario = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db}}
+    # El origen es una combinación de los socios + un valor fijo
+    opciones_origen = {"TODOS": None, "PSC (Venta Local)": "PSC (Venta Local)", **{s['nombre']: s['nombre'] for s in socios_db}}
+
+    # --- Interfaz de Filtros ---
+    st.subheader("Filtros de Búsqueda")
+    col1, col2 = st.columns(2)
+    with col1:
+        fecha_ini_d = st.date_input("Fecha Desde", value=None, key="delivery_fecha_ini")
+        sel_sucursal_d = st.selectbox("Sucursal", options=opciones_sucursal.keys(), key="delivery_sucursal")
+    with col2:
+        fecha_fin_d = st.date_input("Fecha Hasta", value=None, key="delivery_fecha_fin")
+        sel_usuario_d = st.selectbox("Usuario", options=opciones_usuario.keys(), key="delivery_usuario")
+    
+    sel_origen_d = st.selectbox("Origen del Pedido", options=opciones_origen.keys(), key="delivery_origen")
+
+    # --- Lógica de Búsqueda y Visualización ---
+    if st.button("Buscar Deliveries", type="primary"):
+        str_ini = fecha_ini_d.strftime("%Y-%m-%d") if fecha_ini_d else None
+        str_fin = fecha_fin_d.strftime("%Y-%m-%d") if fecha_fin_d else None
+        sucursal_id = opciones_sucursal[sel_sucursal_d]
+        usuario_id = opciones_usuario[sel_usuario_d]
+        origen_nombre = opciones_origen[sel_origen_d]
+
+        with st.spinner("Buscando deliveries..."):
+            deliveries, err = database.admin_buscar_deliveries_filtrados(
+                fecha_inicio=str_ini, fecha_fin=str_fin,
+                sucursal_id=sucursal_id, usuario_id=usuario_id, origen_nombre=origen_nombre
+            )
+
+        if err:
+            st.error(f"Error al buscar deliveries: {err}")
+        elif not deliveries:
+            st.warning("No se encontraron deliveries con los filtros seleccionados.")
+        else:
+            st.subheader("Resultados de la Búsqueda")
+            
+            # Procesar datos para el DataFrame
+            df_data = []
+            for d in deliveries:
+                cobrado = float(d.get('monto_cobrado', 0))
+                costo = float(d.get('costo_repartidor', 0))
+                df_data.append({
+                    "Fecha": pd.to_datetime(d['created_at']).strftime('%Y-%m-%d %H:%M'),
+                    "Usuario": d.get('perfiles', {}).get('nombre', 'N/A') if d.get('perfiles') else 'N/A',
+                    "Sucursal": d.get('sucursales', {}).get('sucursal', 'N/A') if d.get('sucursales') else 'N/A',
+                    "Origen": d.get('origen_nombre', 'N/A'),
+                    "Monto Cobrado": cobrado,
+                    "Costo Repartidor": costo,
+                    "Ganancia Neta": cobrado - costo,
+                    "Notas": d.get('notas', '')
+                })
+            df = pd.DataFrame(df_data)
+
+            # Mostrar totales y tabla
+            col_t1, col_t2, col_t3 = st.columns(3)
+            col_t1.metric("Total Cobrado", f"${df['Monto Cobrado'].sum():,.2f}")
+            col_t2.metric("Total Costo Repartidores", f"${df['Costo Repartidor'].sum():,.2f}")
+            col_t3.metric("Ganancia Neta Total", f"${df['Ganancia Neta'].sum():,.2f}")
+            
+            st.dataframe(df.style.format({
+                "Monto Cobrado": "${:,.2f}",
+                "Costo Repartidor": "${:,.2f}",
+                "Ganancia Neta": "${:,.2f}"
+            }), use_container_width=True)
+
+            # Mostrar gráfico
+            st.subheader("Ganancia Neta por Origen")
+            df_grouped = df.groupby("Origen")["Ganancia Neta"].sum().sort_values(ascending=False)
             st.bar_chart(df_grouped)
