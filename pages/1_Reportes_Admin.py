@@ -70,31 +70,53 @@ with tab_op:
 
     def op_mostrar_tab_resumen(cierre_dict):
         st.subheader("Resumen del Cierre")
+    
         nota_discrepancia = cierre_dict.get('nota_discrepancia')
         if nota_discrepancia:
             st.warning(f"⚠️ **Nota de Admin por Descuadre:** {nota_discrepancia}")
 
         resumen_guardado = cierre_dict.get('resumen_del_dia')
-        if resumen_guardado:
-            st.info("Mostrando datos del nuevo reporte de resumen guardado.")
-            total_rayo = float(resumen_guardado.get('total_rayo_externo', 0))
-            socios_data = resumen_guardado.get('totales_por_socio', [])
-            total_socios = sum(float(s.get('total', 0)) for s in socios_data)
-            
-            col1, col2 = st.columns(2)
-            col1.metric("Total Verificable (POS + Socios)", f"${total_rayo:,.2f}")
-            col2.metric("Total Ingresos por Socios", f"${total_socios:,.2f}")
-            
-            with st.expander("Ver desglose del resumen guardado en JSON"):
-                st.json(resumen_guardado)
-        else:
-            st.info("Mostrando datos de un cierre antiguo (sin resumen guardado).")
-            col1, col2 = st.columns(2)
-            # CORRECCIÓN: Se añade 'or 0' para evitar el error con valores nulos
+        if not resumen_guardado:
+            st.info("Mostrando datos de un cierre con formato antiguo.")
             a_depositar = float(cierre_dict.get('total_a_depositar') or 0)
             saldo_siguiente = float(cierre_dict.get('saldo_para_siguiente_dia') or 0)
+            col1, col2 = st.columns(2)
             col1.metric("A Depositar", f"${a_depositar:,.2f}")
             col2.metric("Saldo para Siguiente Día", f"${saldo_siguiente:,.2f}")
+            return
+
+    # --- INICIO DE LA NUEVA VISTA USER-FRIENDLY ---
+    st.markdown("#### Ingresos de Rayo (POS)")
+    total_rayo_externo = float(resumen_guardado.get('total_rayo_externo', 0))
+    st.metric("Total General de Rayo (Externo)", f"${total_rayo_externo:,.2f}")
+
+    desglose_rayo = resumen_guardado.get('desglose_rayo', [])
+    if not desglose_rayo:
+        st.caption("No se registraron ingresos de Rayo (POS).")
+    else:
+        with st.expander("Ver desglose de Rayo (POS) por método de pago"):
+            for item in sorted(desglose_rayo, key=lambda x: x['metodo']):
+                label = f"{item['metodo']} (Interno)" if item.get('tipo') == 'interno' else item['metodo']
+                st.metric(label=label, value=f"${float(item.get('total', 0)):,.2f}")
+
+    st.divider()
+    
+    st.markdown("#### Ingresos por Socios")
+    totales_por_socio = resumen_guardado.get('totales_por_socio', [])
+    if not totales_por_socio:
+        st.info("No se encontraron ingresos de Socios para este cierre.")
+    else:
+        num_socios = len(totales_por_socio)
+        cols = st.columns(num_socios if num_socios > 0 else 1)
+        
+        for i, socio_data in enumerate(sorted(totales_por_socio, key=lambda x: x['socio'])):
+            with cols[i]:
+                total_socio = float(socio_data.get('total', 0))
+                st.metric(label=f"Total {socio_data.get('socio')}", value=f"${total_socio:,.2f}")
+                
+                with st.expander("Ver desglose"):
+                    for desglose in socio_data.get('desglose', []):
+                        st.write(f"{desglose.get('metodo')}: **${float(desglose.get('total', 0)):,.2f}**")
 
     def op_mostrar_reporte_verificacion(data_dict):
         # Esta función ya estaba correcta, la incluimos para que el bloque sea completo
