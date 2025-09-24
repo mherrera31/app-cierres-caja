@@ -397,69 +397,70 @@ with tab_analisis:
             df['Total'] = pd.to_numeric(df['Total'])
         return df
 
-    # --- Cargar datos para los filtros ---
-    sucursales_db, usuarios_db, metodos_db, socios_db, _ = cargar_filtros_data_basicos()
-    op_suc = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db}}
-    op_user = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db}}
-    
-    # --- Interfaz de Filtros ---
-    st.subheader("Filtros")
-    col1, col2 = st.columns(2)
-    with col1:
-        fecha_ini = st.date_input("Fecha Desde", value=None, key="analisis_fi_final")
-        sel_sucursal_nombre = st.selectbox("Sucursal", options=op_suc.keys(), key="analisis_s_final")
-        sel_fuente = st.selectbox("Fuente de Ingreso (POS, Socios)", options=["TODAS"] + ["Rayo (POS)"] + [s['nombre'] for s in socios_db], key="analisis_fuente_final")
-    with col2:
-        fecha_fin = st.date_input("Fecha Hasta", value=None, key="analisis_ff_final")
-        sel_usuario_nombre = st.selectbox("Usuario", options=op_user.keys(), key="analisis_u_final")
-        sel_metodo = st.selectbox("Método de Pago", options=["TODOS"] + [m['nombre'] for m in metodos_db], key="analisis_metodo_final")
+    df_ingresos = cargar_y_procesar_datos_ingresos()
 
-    if st.button("Generar Reporte de Ingresos", type="primary", key="btn_analisis_final"):
-        str_ini = fecha_ini.strftime('%Y-%m-%d') if fecha_ini else None
-        str_fin = fecha_fin.strftime('%Y-%m-%d') if fecha_fin else None
-        sucursal_id_filtrar = op_suc[sel_sucursal_nombre]
-        usuario_id_filtrar = op_user[sel_usuario_nombre]
+    if df_ingresos.empty:
+        st.warning("No hay datos de ingresos con el formato nuevo para analizar.")
+    else:
+        st.subheader("Filtros")
+        
+        col1, col2 = st.columns(2)
+        fecha_ini = col1.date_input("Fecha Desde", value=df_ingresos['Fecha'].min(), key="analisis_fi_final")
+        fecha_fin = col2.date_input("Fecha Hasta", value=df_ingresos['Fecha'].max(), key="analisis_ff_final")
+        
+        opciones_fuente = ["TODAS"] + sorted(df_ingresos['Fuente'].unique().tolist())
+        opciones_metodo = ["TODOS"] + sorted(df_ingresos['Metodo'].unique().tolist())
+        
+        col3, col4 = st.columns(2)
+        sel_fuente = col3.selectbox("Fuente de Ingreso (POS, Socios)", options=opciones_fuente)
+        sel_metodo = col4.selectbox("Método de Pago", options=opciones_metodo)
 
-        # Cargar los datos ya filtrados por fecha, sucursal y usuario
-        df_ingresos = cargar_y_procesar_datos_ingresos(
-            fecha_inicio=str_ini, fecha_fin=str_fin,
-            sucursal_id=sucursal_id_filtrar, usuario_id=usuario_id_filtrar
-        )
+        df_filtrado = df_ingresos[
+            (df_ingresos['Fecha'] >= fecha_ini) & 
+            (df_ingresos['Fecha'] <= fecha_fin)
+        ]
+        if sel_fuente != "TODAS":
+            df_filtrado = df_filtrado[df_filtrado['Fuente'] == sel_fuente]
+        if sel_metodo != "TODOS":
+            df_filtrado = df_filtrado[df_filtrado['Metodo'] == sel_metodo]
 
-        if df_ingresos.empty:
+        st.divider()
+        st.subheader("Resultados del Análisis")
+
+        if df_filtrado.empty:
             st.warning("No se encontraron ingresos con los filtros seleccionados.")
         else:
-            # Aplicar filtros adicionales de Fuente y Método
-            df_filtrado = df_ingresos.copy()
-            if sel_fuente != "TODAS":
-                df_filtrado = df_filtrado[df_filtrado['Fuente'] == sel_fuente]
-            if sel_metodo != "TODOS":
-                df_filtrado = df_filtrado[df_filtrado['Metodo'] == sel_metodo]
+            # --- INICIO DE LA MODIFICACIÓN ---
+            
+            # 1. Calculamos los nuevos totales
+            ingreso_total = df_filtrado['Total'].sum()
+            total_interno = df_filtrado[df_filtrado['Tipo'] == 'interno']['Total'].sum()
+            total_real = ingreso_total - total_interno
 
-            # --- Mostrar Resultados ---
-            st.divider()
-            st.subheader("Resultados del Análisis")
+            # 2. Mostramos las 3 métricas
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("Ingreso Total (Bruto)", f"${ingreso_total:,.2f}")
+            col_m2.metric("Total Interno (Informativo)", f"${total_interno:,.2f}")
+            col_m3.metric("Total Real (Externo)", f"${total_real:,.2f}")
 
-            if df_filtrado.empty:
-                st.warning("La combinación de filtros no arrojó resultados.")
-            else:
-                st.metric("Ingreso Total (filtrado)", f"${df_filtrado['Total'].sum():,.2f}")
+            # --- FIN DE LA MODIFICACIÓN ---
 
-                col_t1, col_t2 = st.columns(2)
-                with col_t1:
-                    st.markdown("**Totales por Fuente de Ingreso**")
-                    st.dataframe(df_filtrado.groupby('Fuente')['Total'].sum().sort_values(ascending=False).map('${:,.2f}'.format))
-                with col_t2:
-                    st.markdown("**Totales por Método de Pago**")
-                    st.dataframe(df_filtrado.groupby('Metodo')['Total'].sum().sort_values(ascending=False).map('${:,.2f}'.format))
+            # El resto del reporte no cambia
+            col_t1, col_t2 = st.columns(2)
+            with col_t1:
+                st.markdown("**Totales por Fuente de Ingreso**")
+                st.dataframe(df_filtrado.groupby('Fuente')['Total'].sum().sort_values(ascending=False).map('${:,.2f}'.format))
+            with col_t2:
+                st.markdown("**Totales por Método de Pago**")
+                st.dataframe(df_filtrado.groupby('Metodo')['Total'].sum().sort_values(ascending=False).map('${:,.2f}'.format))
 
-                st.subheader("Ingresos por Día")
-                ingresos_por_dia = df_filtrado.groupby('Fecha')['Total'].sum()
-                st.bar_chart(ingresos_por_dia)
+            st.subheader("Ingresos por Día")
+            ingresos_por_dia = df_filtrado.groupby('Fecha')['Total'].sum()
+            st.bar_chart(ingresos_por_dia)
 
-                with st.expander("Ver detalle completo de ingresos"):
-                    st.dataframe(df_filtrado.style.format({"Total": "${:,.2f}"}), hide_index=True, use_container_width=True)
-
+            with st.expander("Ver detalle completo de ingresos"):
+                st.dataframe(df_filtrado.style.format({"Total": "${:,.2f}"}), hide_index=True, use_container_width=True)
+                        
 # ==========================================================
 # PESTAÑA 4: REPORTE DE GASTOS (NUEVA)
 # ==========================================================
