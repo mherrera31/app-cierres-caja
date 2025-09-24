@@ -105,7 +105,7 @@ with tab_op:
                     "Ganancia Neta": cobrado - costo,
                     "Notas": d.get('notas', '')
                 })
-             df = pd.DataFrame(df_data)
+            df = pd.DataFrame(df_data)
 
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Cobrado", f"${df['Monto Cobrado'].sum():,.2f}")
