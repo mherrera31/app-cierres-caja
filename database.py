@@ -967,23 +967,19 @@ def guardar_resumen_del_dia(cierre_id, resumen_json):
     except Exception as e:
         return None, f"Error al guardar el resumen del día: {e}"
 
-def admin_buscar_gastos_filtrados(fecha_inicio=None, fecha_fin=None, categoria_id=None, sucursal_id=None, usuario_id=None):
-    """
-    Busca en la tabla gastos_caja con múltiples filtros opcionales.
-    """
+def admin_buscar_gastos_filtrados(lista_sucursal_ids=None, fecha_inicio=None, fecha_fin=None, categoria_id=None, usuario_id=None):
     try:
         query = supabase.table('gastos_caja').select(
             'created_at, monto, notas, sucursal, gastos_categorias(nombre), perfiles(nombre)'
         )
+        if lista_sucursal_ids:
+            query = query.in_('sucursal_id', lista_sucursal_ids)
         if fecha_inicio:
-            # Aseguramos que la fecha incluya todo el día
             query = query.gte('created_at', f"{fecha_inicio} 00:00:00")
         if fecha_fin:
             query = query.lte('created_at', f"{fecha_fin} 23:59:59")
         if categoria_id:
             query = query.eq('categoria_id', categoria_id)
-        if sucursal_id:
-            query = query.eq('sucursal_id', sucursal_id)
         if usuario_id:
             query = query.eq('usuario_id', usuario_id)
 
@@ -992,45 +988,39 @@ def admin_buscar_gastos_filtrados(fecha_inicio=None, fecha_fin=None, categoria_i
     except Exception as e:
         return [], f"Error al buscar gastos filtrados: {e}"
 
-def admin_buscar_deliveries_filtrados(fecha_inicio=None, fecha_fin=None, sucursal_id=None, usuario_id=None, origen_nombre=None):
-    """
-    Busca en la tabla cierre_delivery con múltiples filtros opcionales.
-    """
+def admin_buscar_deliveries_filtrados(lista_sucursal_ids=None, fecha_inicio=None, fecha_fin=None, origen_nombre=None, usuario_id=None):
     try:
         query = supabase.table('cierre_delivery').select(
             'created_at, monto_cobrado, costo_repartidor, origen_nombre, notas, perfiles(nombre), sucursales(sucursal)'
         )
+        if lista_sucursal_ids:
+            query = query.in_('sucursal_id', lista_sucursal_ids)
         if fecha_inicio:
             query = query.gte('created_at', f"{fecha_inicio} 00:00:00")
         if fecha_fin:
             query = query.lte('created_at', f"{fecha_fin} 23:59:59")
-        if sucursal_id:
-            query = query.eq('sucursal_id', sucursal_id)
-        if usuario_id:
-            query = query.eq('usuario_id', usuario_id)
         if origen_nombre:
             query = query.eq('origen_nombre', origen_nombre)
+        if usuario_id:
+            query = query.eq('usuario_id', usuario_id)
 
         response = query.order('created_at', desc=True).execute()
         return response.data, None
     except Exception as e:
         return [], f"Error al buscar deliveries filtrados: {e}"
 
-def admin_buscar_resumenes_para_analisis(fecha_inicio=None, fecha_fin=None, sucursal_id=None, usuario_id=None):
-    """
-    Obtiene los cierres y sus JSON 'resumen_del_dia' para el reporte de análisis.
-    """
+def admin_buscar_resumenes_para_analisis(lista_sucursal_ids=None, fecha_inicio=None, fecha_fin=None, usuario_id=None):
     try:
         query = supabase.table('cierres_caja').select(
             'fecha_operacion, resumen_del_dia, sucursales(sucursal), perfiles(nombre)'
-        ).not_.is_('resumen_del_dia', None) # Solo trae cierres con el nuevo resumen
+        ).not_.is_('resumen_del_dia', None)
 
+        if lista_sucursal_ids:
+            query = query.in_('sucursal_id', lista_sucursal_ids)
         if fecha_inicio:
             query = query.gte('fecha_operacion', fecha_inicio)
         if fecha_fin:
             query = query.lte('fecha_operacion', fecha_fin)
-        if sucursal_id:
-            query = query.eq('sucursal_id', sucursal_id)
         if usuario_id:
             query = query.eq('usuario_id', usuario_id)
 
@@ -1038,6 +1028,7 @@ def admin_buscar_resumenes_para_analisis(fecha_inicio=None, fecha_fin=None, sucu
         return response.data, None
     except Exception as e:
         return None, f"Error al buscar resúmenes para análisis: {e}"
+
 
 def get_registros_carga_rango(lista_sucursal_ids, fecha_inicio=None, fecha_fin=None):
     """
