@@ -1,6 +1,6 @@
 # pages/5_Gestion_Carga.py
 
-mport streamlit as st
+import streamlit as st
 import database
 import pytz
 from datetime import datetime, timedelta
