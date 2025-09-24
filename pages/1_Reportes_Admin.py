@@ -28,14 +28,11 @@ st.title("Panel de Reportes Administrativos")
 # --- FUNCIONES DE CACHÉ PARA CARGAR DATOS DE FILTROS ---
 @st.cache_data(ttl=600) 
 def cargar_filtros_data_basicos():
-    """ Carga todos los datos maestros para los filtros. """
     sucursales, _ = database.obtener_sucursales()
     usuarios, _ = database.admin_get_lista_usuarios()
     metodos, _ = database.obtener_metodos_pago()
     socios, _ = database.admin_get_todos_socios()
-    # Línea que faltaba:
     categorias, _ = database.admin_get_todas_categorias()
-    # Ahora devuelve 5 elementos:
     return sucursales, usuarios, metodos, socios, categorias
 
 @st.cache_data(ttl=600) 
@@ -45,10 +42,11 @@ def cargar_filtros_data_cde():
     return sucursales, usuarios
 
 # --- PESTAÑAS PRINCIPALES ---
-tab_op, tab_cde, tab_analisis = st.tabs([
+tab_op, tab_cde, tab_analisis, tab_gastos = st.tabs([
     "📊 Cierres Operativos (Log)", 
     "🏦 Cierres CDE (Log)",
-    "📈 Análisis de Ingresos"
+    "📈 Análisis de Ingresos",
+    "💸 Reporte de Gastos"
 ])
 
 # ==========================================================
@@ -410,3 +408,70 @@ with tab_analisis:
             st.bar_chart(df_grouped)
 
     st.info("**Nota Importante:** Este reporte no puede filtrar por Socio individual, ya que el resumen `verificacion_pagos_detalle` guarda los totales de forma consolidada.")
+
+# ==========================================================
+# PESTAÑA 4: REPORTE DE GASTOS (NUEVA)
+# ==========================================================
+with tab_gastos:
+    st.header("Reporteador de Gastos")
+
+    # --- Cargar datos para los filtros ---
+    sucursales_db, usuarios_db, _, _, categorias_db = cargar_filtros_data_basicos()
+    opciones_sucursal = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db}}
+    opciones_usuario = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db}}
+    opciones_categoria = {"TODAS": None, **{c['nombre']: c['id'] for c in categorias_db}}
+
+    # --- Interfaz de Filtros ---
+    st.subheader("Filtros de Búsqueda")
+    col1, col2 = st.columns(2)
+    with col1:
+        fecha_ini_g = st.date_input("Fecha Desde", value=None, key="gastos_fecha_ini")
+        sel_sucursal_g = st.selectbox("Sucursal", options=opciones_sucursal.keys(), key="gastos_sucursal")
+    with col2:
+        fecha_fin_g = st.date_input("Fecha Hasta", value=None, key="gastos_fecha_fin")
+        sel_usuario_g = st.selectbox("Usuario", options=opciones_usuario.keys(), key="gastos_usuario")
+    
+    sel_categoria_g = st.selectbox("Categoría de Gasto", options=opciones_categoria.keys(), key="gastos_categoria")
+
+    # --- Lógica de Búsqueda y Visualización ---
+    if st.button("Buscar Gastos", type="primary"):
+        str_ini = fecha_ini_g.strftime("%Y-%m-%d") if fecha_ini_g else None
+        str_fin = fecha_fin_g.strftime("%Y-%m-%d") if fecha_fin_g else None
+        sucursal_id = opciones_sucursal[sel_sucursal_g]
+        usuario_id = opciones_usuario[sel_usuario_g]
+        categoria_id = opciones_categoria[sel_categoria_g]
+
+        with st.spinner("Buscando gastos..."):
+            gastos, err = database.admin_buscar_gastos_filtrados(
+                fecha_inicio=str_ini, fecha_fin=str_fin,
+                sucursal_id=sucursal_id, usuario_id=usuario_id, categoria_id=categoria_id
+            )
+
+        if err:
+            st.error(f"Error al buscar gastos: {err}")
+        elif not gastos:
+            st.warning("No se encontraron gastos con los filtros seleccionados.")
+        else:
+            st.subheader("Resultados de la Búsqueda")
+            
+            # Procesar datos para el DataFrame
+            df_data = []
+            for g in gastos:
+                df_data.append({
+                    "Fecha": pd.to_datetime(g['created_at']).strftime('%Y-%m-%d %H:%M'),
+                    "Usuario": g.get('perfiles', {}).get('nombre', 'N/A') if g.get('perfiles') else 'N/A',
+                    "Sucursal": g.get('sucursal', 'N/A'),
+                    "Categoría": g.get('gastos_categorias', {}).get('nombre', 'N/A') if g.get('gastos_categorias') else 'N/A',
+                    "Monto": float(g.get('monto', 0)),
+                    "Notas": g.get('notas', '')
+                })
+            df = pd.DataFrame(df_data)
+
+            # Mostrar total y tabla
+            st.metric("Total Gastado (según filtros)", f"${df['Monto'].sum():,.2f}")
+            st.dataframe(df.style.format({"Monto": "${:,.2f}"}), use_container_width=True)
+
+            # Mostrar gráfico
+            st.subheader("Total de Gastos por Categoría")
+            df_grouped = df.groupby("Categoría")["Monto"].sum().sort_values(ascending=False)
+            st.bar_chart(df_grouped)
