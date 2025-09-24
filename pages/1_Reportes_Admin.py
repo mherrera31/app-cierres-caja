@@ -416,94 +416,66 @@ with tab_cde:
 # ==========================================================
 with tab_analisis:
     st.header("Análisis de Ingresos Detallado")
-
     @st.cache_data(ttl=300)
-    def cargar_y_procesar_datos_ingresos(fecha_inicio=None, fecha_fin=None, sucursal_id=None, usuario_id=None):
-        cierres, err = database.admin_buscar_resumenes_para_analisis(
-            fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
-            sucursal_id=sucursal_id, usuario_id=usuario_id
-        )
-        if err:
-            st.error(f"No se pudieron cargar los datos de ingresos: {err}")
-            return pd.DataFrame()
-        
-        if not cierres:
-            return pd.DataFrame()
-
+    def cargar_y_procesar_datos_ingresos(lista_sucursal_ids=None, fecha_inicio=None, fecha_fin=None, usuario_id=None):
+        cierres, err = database.admin_buscar_resumenes_para_analisis(lista_sucursal_ids=lista_sucursal_ids, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, usuario_id=usuario_id)
+        if err: st.error(f"No se pudieron cargar los datos de ingresos: {err}"); return pd.DataFrame()
+        if not cierres: return pd.DataFrame()
         flat_data = []
         for cierre in cierres:
             resumen = cierre.get('resumen_del_dia', {})
-            info_base = {
-                "Fecha": cierre['fecha_operacion'],
-                "Sucursal": cierre.get('sucursales', {}).get('sucursal', 'N/A'),
-                "Usuario": cierre.get('perfiles', {}).get('nombre', 'N/A')
-            }
-            for item in resumen.get('desglose_rayo', []):
-                flat_data.append({**info_base, "Fuente": "Rayo (POS)", "Metodo": item['metodo'], "Tipo": item['tipo'], "Total": item['total']})
+            info_base = {"Fecha": cierre['fecha_operacion'], "Sucursal": cierre.get('sucursales', {}).get('sucursal', 'N/A'), "Usuario": cierre.get('perfiles', {}).get('nombre', 'N/A')}
+            for item in resumen.get('desglose_rayo', []): flat_data.append({**info_base, "Fuente": "Rayo (POS)", "Metodo": item['metodo'], "Tipo": item['tipo'], "Total": item['total']})
             for socio in resumen.get('totales_por_socio', []):
-                for desglose in socio.get('desglose', []):
-                    flat_data.append({**info_base, "Fuente": socio['socio'], "Metodo": desglose['metodo'], "Tipo": "externo", "Total": desglose['total']})
-        
+                for desglose in socio.get('desglose', []): flat_data.append({**info_base, "Fuente": socio['socio'], "Metodo": desglose['metodo'], "Tipo": "externo", "Total": desglose['total']})
         df = pd.DataFrame(flat_data)
         if not df.empty:
             df['Fecha'] = pd.to_datetime(df['Fecha']).dt.date
             df['Total'] = pd.to_numeric(df['Total'])
         return df
 
-    # --- Cargar datos para los filtros ---
     sucursales_db, usuarios_db, metodos_db, socios_db, _ = cargar_filtros_data_basicos()
-    op_suc = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db}}
+    op_suc = {s['sucursal']: s['id'] for s in sucursales_db}
     op_user = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db}}
     
-    # --- Interfaz de Filtros (Definidos antes del botón) ---
     st.subheader("Filtros")
     col1, col2 = st.columns(2)
     with col1:
         fecha_ini = st.date_input("Fecha Desde", value=None, key="analisis_fi_final")
-        sel_sucursal_nombre = st.selectbox("Sucursal", options=op_suc.keys(), key="analisis_s_final")
-        sel_fuente = st.selectbox("Fuente de Ingreso (POS, Socios)", options=["TODAS"] + ["Rayo (POS)"] + [s['nombre'] for s in socios_db], key="analisis_fuente_final")
+        sel_sucursales_nombres = st.multiselect("Sucursal(es)", options=list(op_suc.keys()), key="analisis_s_final")
     with col2:
         fecha_fin = st.date_input("Fecha Hasta", value=None, key="analisis_ff_final")
         sel_usuario_nombre = st.selectbox("Usuario", options=op_user.keys(), key="analisis_u_final")
+    col3, col4 = st.columns(2)
+    with col3:
+        sel_fuente = st.selectbox("Fuente de Ingreso", options=["TODAS"] + ["Rayo (POS)"] + [s['nombre'] for s in socios_db], key="analisis_fuente_final")
+    with col4:
         sel_metodo = st.selectbox("Método de Pago", options=["TODOS"] + [m['nombre'] for m in metodos_db], key="analisis_metodo_final")
 
-    # --- Botón para generar el reporte ---
-    if st.button("Generar Reporte de Ingresos", type="primary", key="btn_analisis_final"):
+    if st.button("Generar Reporte de Ingresos", type="primary"):
         str_ini = fecha_ini.strftime('%Y-%m-%d') if fecha_ini else None
         str_fin = fecha_fin.strftime('%Y-%m-%d') if fecha_fin else None
-        sucursal_id_filtrar = op_suc[sel_sucursal_nombre]
+        sucursal_ids_filtrar = [op_suc[nombre] for nombre in sel_sucursales_nombres] if sel_sucursales_nombres else None
         usuario_id_filtrar = op_user[sel_usuario_nombre]
-
-        df_ingresos = cargar_y_procesar_datos_ingresos(
-            fecha_inicio=str_ini, fecha_fin=str_fin,
-            sucursal_id=sucursal_id_filtrar, usuario_id=usuario_id_filtrar
-        )
-
+        df_ingresos = cargar_y_procesar_datos_ingresos(lista_sucursal_ids=sucursal_ids_filtrar, fecha_inicio=str_ini, fecha_fin=str_fin, usuario_id=usuario_id_filtrar)
         if df_ingresos.empty:
             st.warning("No se encontraron ingresos con los filtros primarios seleccionados.")
         else:
-            # Aplicar filtros adicionales de Fuente y Método
             df_filtrado = df_ingresos.copy()
-            if sel_fuente != "TODAS":
-                df_filtrado = df_filtrado[df_filtrado['Fuente'] == sel_fuente]
-            if sel_metodo != "TODOS":
-                df_filtrado = df_filtrado[df_filtrado['Metodo'] == sel_metodo]
-
+            if sel_fuente != "TODAS": df_filtrado = df_filtrado[df_filtrado['Fuente'] == sel_fuente]
+            if sel_metodo != "TODOS": df_filtrado = df_filtrado[df_filtrado['Metodo'] == sel_metodo]
             st.divider()
             st.subheader("Resultados del Análisis")
-
             if df_filtrado.empty:
                 st.warning("La combinación de filtros no arrojó resultados.")
             else:
                 ingreso_total = df_filtrado['Total'].sum()
                 total_interno = df_filtrado[df_filtrado['Tipo'] == 'interno']['Total'].sum()
                 total_real = ingreso_total - total_interno
-
                 col_m1, col_m2, col_m3 = st.columns(3)
                 col_m1.metric("Ingreso Total (Bruto)", f"${ingreso_total:,.2f}")
                 col_m2.metric("Total Interno (Informativo)", f"${total_interno:,.2f}")
                 col_m3.metric("Total Real (Externo)", f"${total_real:,.2f}")
-
                 col_t1, col_t2 = st.columns(2)
                 with col_t1:
                     st.markdown("**Totales por Fuente de Ingreso**")
@@ -511,60 +483,45 @@ with tab_analisis:
                 with col_t2:
                     st.markdown("**Totales por Método de Pago**")
                     st.dataframe(df_filtrado.groupby('Metodo')['Total'].sum().sort_values(ascending=False).map('${:,.2f}'.format))
-
                 st.subheader("Ingresos por Día")
                 ingresos_por_dia = df_filtrado.groupby('Fecha')['Total'].sum()
                 st.bar_chart(ingresos_por_dia)
-
                 with st.expander("Ver detalle completo de ingresos"):
                     st.dataframe(df_filtrado.style.format({"Total": "${:,.2f}"}), hide_index=True, use_container_width=True)
-                        
+
 # ==========================================================
-# PESTAÑA 4: REPORTE DE GASTOS (NUEVA)
+# PESTAÑA 4: REPORTE DE GASTOS
 # ==========================================================
 with tab_gastos:
     st.header("Reporteador de Gastos")
-
-    # --- Cargar datos para los filtros ---
-    sucursales_db, usuarios_db, _, _, categorias_db = cargar_filtros_data_basicos()
-    opciones_sucursal = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db}}
-    opciones_usuario = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db}}
-    opciones_categoria = {"TODAS": None, **{c['nombre']: c['id'] for c in categorias_db}}
-
-    # --- Interfaz de Filtros ---
-    st.subheader("Filtros de Búsqueda")
-    col1, col2 = st.columns(2)
-    with col1:
-        fecha_ini_g = st.date_input("Fecha Desde", value=None, key="gastos_fecha_ini")
-        sel_sucursal_g = st.selectbox("Sucursal", options=opciones_sucursal.keys(), key="gastos_sucursal")
-    with col2:
-        fecha_fin_g = st.date_input("Fecha Hasta", value=None, key="gastos_fecha_fin")
-        sel_usuario_g = st.selectbox("Usuario", options=opciones_usuario.keys(), key="gastos_usuario")
-    
-    sel_categoria_g = st.selectbox("Categoría de Gasto", options=opciones_categoria.keys(), key="gastos_categoria")
-
-    # --- Lógica de Búsqueda y Visualización ---
+    sucursales_db_g, usuarios_db_g, _, _, categorias_db_g = cargar_filtros_data_basicos()
+    op_suc_g = {s['sucursal']: s['id'] for s in sucursales_db_g}
+    op_user_g = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db_g}}
+    op_cat_g = {"TODAS": None, **{c['nombre']: c['id'] for c in categorias_db_g}}
+    st.subheader("Filtros")
+    colg1, colg2 = st.columns(2)
+    with colg1:
+        fecha_ini_g = st.date_input("Fecha Desde", value=None, key="gastos_fi")
+        sel_sucursales_g = st.multiselect("Sucursal(es)", options=list(op_suc_g.keys()), key="gastos_s")
+    with colg2:
+        fecha_fin_g = st.date_input("Fecha Hasta", value=None, key="gastos_ff")
+        sel_usuario_g = st.selectbox("Usuario", options=op_user_g.keys(), key="gastos_u")
+    sel_categoria_g = st.selectbox("Categoría de Gasto", options=op_cat_g.keys(), key="gastos_c")
     if st.button("Buscar Gastos", type="primary"):
-        str_ini = fecha_ini_g.strftime("%Y-%m-%d") if fecha_ini_g else None
-        str_fin = fecha_fin_g.strftime("%Y-%m-%d") if fecha_fin_g else None
-        sucursal_id = opciones_sucursal[sel_sucursal_g]
-        usuario_id = opciones_usuario[sel_usuario_g]
-        categoria_id = opciones_categoria[sel_categoria_g]
-
+        str_ini_g = fecha_ini_g.strftime("%Y-%m-%d") if fecha_ini_g else None
+        str_fin_g = fecha_fin_g.strftime("%Y-%m-%d") if fecha_fin_g else None
+        sucursal_ids_g = [op_suc_g[nombre] for nombre in sel_sucursales_g] if sel_sucursales_g else None
+        usuario_id_g = op_user_g[sel_usuario_g]
+        categoria_id_g = op_cat_g[sel_categoria_g]
         with st.spinner("Buscando gastos..."):
             gastos, err = database.admin_buscar_gastos_filtrados(
-                fecha_inicio=str_ini, fecha_fin=str_fin,
-                sucursal_id=sucursal_id, usuario_id=usuario_id, categoria_id=categoria_id
+                lista_sucursal_ids=sucursal_ids_g, fecha_inicio=str_ini_g, fecha_fin=str_fin_g,
+                usuario_id=usuario_id_g, categoria_id=categoria_id_g
             )
-
-        if err:
-            st.error(f"Error al buscar gastos: {err}")
-        elif not gastos:
-            st.warning("No se encontraron gastos con los filtros seleccionados.")
+        if err: st.error(f"Error al buscar gastos: {err}")
+        elif not gastos: st.warning("No se encontraron gastos con los filtros seleccionados.")
         else:
             st.subheader("Resultados de la Búsqueda")
-            
-            # Procesar datos para el DataFrame
             df_data = []
             for g in gastos:
                 df_data.append({
@@ -576,64 +533,46 @@ with tab_gastos:
                     "Notas": g.get('notas', '')
                 })
             df = pd.DataFrame(df_data)
-
-            # Mostrar total y tabla
             st.metric("Total Gastado (según filtros)", f"${df['Monto'].sum():,.2f}")
             st.dataframe(df.style.format({"Monto": "${:,.2f}"}), use_container_width=True)
-
-            # Mostrar gráfico
             st.subheader("Total de Gastos por Categoría")
             df_grouped = df.groupby("Categoría")["Monto"].sum().sort_values(ascending=False)
             st.bar_chart(df_grouped)
 
-
 # ==========================================================
-# PESTAÑA 5: REPORTE DE DELIVERY (NUEVA)
+# PESTAÑA 5: REPORTE DE DELIVERY
 # ==========================================================
 with tab_delivery:
     st.header("Reporteador de Deliveries")
-
-    # --- Cargar datos para los filtros ---
-    sucursales_db, usuarios_db, _, socios_db, _ = cargar_filtros_data_basicos()
-    opciones_sucursal = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db}}
-    opciones_usuario = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db}}
-    # El origen es una combinación de los socios + un valor fijo
-    opciones_origen = {"TODOS": None, "PSC (Venta Local)": "PSC (Venta Local)", **{s['nombre']: s['nombre'] for s in socios_db}}
-
-    # --- Interfaz de Filtros ---
-    st.subheader("Filtros de Búsqueda")
-    col1, col2 = st.columns(2)
-    with col1:
-        fecha_ini_d = st.date_input("Fecha Desde", value=None, key="delivery_fecha_ini")
-        sel_sucursal_d = st.selectbox("Sucursal", options=opciones_sucursal.keys(), key="delivery_sucursal")
-    with col2:
-        fecha_fin_d = st.date_input("Fecha Hasta", value=None, key="delivery_fecha_fin")
-        sel_usuario_d = st.selectbox("Usuario", options=opciones_usuario.keys(), key="delivery_usuario")
+    sucursales_db_d, usuarios_db_d, _, socios_db_d, _ = cargar_filtros_data_basicos()
+    op_suc_d = {s['sucursal']: s['id'] for s in sucursales_db_d}
+    op_user_d = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db_d}}
+    op_origen_d = {"TODOS": None, "PSC (Venta Local)": "PSC (Venta Local)", **{s['nombre']: s['nombre'] for s in socios_db_d}}
     
-    sel_origen_d = st.selectbox("Origen del Pedido", options=opciones_origen.keys(), key="delivery_origen")
-
-    # --- Lógica de Búsqueda y Visualización ---
+    st.subheader("Filtros")
+    cold1, cold2 = st.columns(2)
+    with cold1:
+        fecha_ini_d = st.date_input("Fecha Desde", value=None, key="delivery_fi")
+        sel_sucursales_d = st.multiselect("Sucursal(es)", options=list(op_suc_d.keys()), key="delivery_s")
+    with cold2:
+        fecha_fin_d = st.date_input("Fecha Hasta", value=None, key="delivery_ff")
+        sel_usuario_d = st.selectbox("Usuario", options=op_user_d.keys(), key="delivery_u")
+    sel_origen_d = st.selectbox("Origen del Pedido", options=op_origen_d.keys(), key="delivery_o")
     if st.button("Buscar Deliveries", type="primary"):
-        str_ini = fecha_ini_d.strftime("%Y-%m-%d") if fecha_ini_d else None
-        str_fin = fecha_fin_d.strftime("%Y-%m-%d") if fecha_fin_d else None
-        sucursal_id = opciones_sucursal[sel_sucursal_d]
-        usuario_id = opciones_usuario[sel_usuario_d]
-        origen_nombre = opciones_origen[sel_origen_d]
-
+        str_ini_d = fecha_ini_d.strftime("%Y-%m-%d") if fecha_ini_d else None
+        str_fin_d = fecha_fin_d.strftime("%Y-%m-%d") if fecha_fin_d else None
+        sucursal_ids_d = [op_suc_d[nombre] for nombre in sel_sucursales_d] if sel_sucursales_d else None
+        usuario_id_d = op_user_d[sel_usuario_d]
+        origen_nombre_d = op_origen_d[sel_origen_d]
         with st.spinner("Buscando deliveries..."):
             deliveries, err = database.admin_buscar_deliveries_filtrados(
-                fecha_inicio=str_ini, fecha_fin=str_fin,
-                sucursal_id=sucursal_id, usuario_id=usuario_id, origen_nombre=origen_nombre
+                lista_sucursal_ids=sucursal_ids_d, fecha_inicio=str_ini_d, fecha_fin=str_fin_d,
+                usuario_id=usuario_id_d, origen_nombre=origen_nombre_d
             )
-
-        if err:
-            st.error(f"Error al buscar deliveries: {err}")
-        elif not deliveries:
-            st.warning("No se encontraron deliveries con los filtros seleccionados.")
+        if err: st.error(f"Error al buscar deliveries: {err}")
+        elif not deliveries: st.warning("No se encontraron deliveries con los filtros seleccionados.")
         else:
             st.subheader("Resultados de la Búsqueda")
-            
-            # Procesar datos para el DataFrame
             df_data = []
             for d in deliveries:
                 cobrado = float(d.get('monto_cobrado', 0))
@@ -649,20 +588,11 @@ with tab_delivery:
                     "Notas": d.get('notas', '')
                 })
             df = pd.DataFrame(df_data)
-
-            # Mostrar totales y tabla
             col_t1, col_t2, col_t3 = st.columns(3)
             col_t1.metric("Total Cobrado", f"${df['Monto Cobrado'].sum():,.2f}")
             col_t2.metric("Total Costo Repartidores", f"${df['Costo Repartidor'].sum():,.2f}")
             col_t3.metric("Ganancia Neta Total", f"${df['Ganancia Neta'].sum():,.2f}")
-            
-            st.dataframe(df.style.format({
-                "Monto Cobrado": "${:,.2f}",
-                "Costo Repartidor": "${:,.2f}",
-                "Ganancia Neta": "${:,.2f}"
-            }), use_container_width=True)
-
-            # Mostrar gráfico
+            st.dataframe(df.style.format({"Monto Cobrado": "${:,.2f}", "Costo Repartidor": "${:,.2f}", "Ganancia Neta": "${:,.2f}"}), use_container_width=True)
             st.subheader("Ganancia Neta por Origen")
             df_grouped = df.groupby("Origen")["Ganancia Neta"].sum().sort_values(ascending=False)
             st.bar_chart(df_grouped)
