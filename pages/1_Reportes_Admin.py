@@ -274,17 +274,19 @@ with tab_op:
                 titulo_expander = f"📅 {cierre['fecha_operacion']} | 👤 {user_nombre} | 🏠 {suc_nombre} | ({cierre['estado']})"
                 
                 with st.expander(titulo_expander):
-                    t_res, t_ini, t_fin, t_verif, t_gastos = st.tabs([
-                        "Resumen", "Caja Inicial", "Caja Final", "Verificación", "Gastos"
+                    # --- LÍNEAS MODIFICADAS ---
+                    t_res, t_ini, t_fin, t_verif, t_gastos, t_ing_adic, t_del = st.tabs([
+                        "Resumen", "Caja Inicial", "Caja Final", "Verificación", "Gastos",
+                        "Ingresos Adic.", "Delivery"
                     ])
 
-                    # --- Lógica de renderizado actualizada y corregida ---
                     with t_res: op_mostrar_tab_resumen(cierre)
                     with t_ini: op_mostrar_reporte_denominaciones("Detalle Caja Inicial", cierre.get('saldo_inicial_detalle'))
                     with t_fin: op_mostrar_reporte_denominaciones("Detalle Caja Final", cierre.get('saldo_final_detalle'))
                     with t_verif: op_mostrar_reporte_verificacion(cierre.get('verificacion_pagos_detalle'))
                     with t_gastos: op_mostrar_reporte_gastos(cierre['id'])
-
+                    with t_ing_adic: op_mostrar_reporte_ingresos_adic(cierre['id'])
+                    with t_del: op_mostrar_reporte_delivery(cierre['id'])
 
 
 # ==========================================================
