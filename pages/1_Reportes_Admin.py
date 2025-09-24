@@ -133,6 +133,55 @@ with tab_op:
             df = pd.DataFrame(df_data)
             st.dataframe(df, hide_index=True, use_container_width=True)
             st.metric("TOTAL GASTOS", f"${df['Monto'].sum():,.2f}")
+                    
+    # --- Filtros (Operativo) ---
+    sucursales_db_op, usuarios_db_op, _, _ = cargar_filtros_data_basicos()
+    opciones_sucursal_op = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db_op}}
+    opciones_usuario_op = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db_op}}
+
+    col_filtros1_op, col_filtros2_op = st.columns(2)
+    with col_filtros1_op:
+        fecha_ini_op = st.date_input("Fecha Desde", value=None, key="op_fecha_ini")
+        sel_sucursal_nombre_op = st.selectbox("Sucursal (Operativa)", options=opciones_sucursal_op.keys(), key="op_sucursal")
+    with col_filtros2_op:
+        fecha_fin_op = st.date_input("Fecha Hasta", value=None, key="op_fecha_fin")
+        sel_usuario_nombre_op = st.selectbox("Usuario", options=opciones_usuario_op.keys(), key="op_usuario")
+    
+    solo_disc_op = st.checkbox("Mostrar solo cierres con discrepancia inicial")
+    
+    if st.button("Buscar Cierres Operativos", type="primary"):
+        str_ini_op = fecha_ini_op.strftime("%Y-%m-%d") if fecha_ini_op else None
+        str_fin_op = fecha_fin_op.strftime("%Y-%m-%d") if fecha_fin_op else None
+        sucursal_id_filtrar_op = opciones_sucursal_op[sel_sucursal_nombre_op]
+        usuario_id_filtrar_op = opciones_usuario_op[sel_usuario_nombre_op]
+        
+        cierres_op, error_op = database.admin_buscar_cierres_filtrados(
+            fecha_inicio=str_ini_op, fecha_fin=str_fin_op,
+            sucursal_id=sucursal_id_filtrar_op, usuario_id=usuario_id_filtrar_op,
+            solo_discrepancia=solo_disc_op
+        )
+        
+        if error_op: st.error(f"Error de DB: {error_op}")
+        elif not cierres_op: st.warning("No se encontraron cierres operativos con esos filtros.")
+        else:
+            for cierre in cierres_op:
+                user_nombre = cierre.get('perfiles', {}).get('nombre', 'N/A')
+                suc_nombre = cierre.get('sucursales', {}).get('sucursal', 'N/A')
+                titulo_expander = f"📅 {cierre['fecha_operacion']} | 👤 {user_nombre} | 🏠 {suc_nombre} | ({cierre['estado']})"
+                
+                with st.expander(titulo_expander):
+                    t_res, t_ini, t_fin, t_verif, t_gastos = st.tabs([
+                        "Resumen", "Caja Inicial", "Caja Final", "Verificación", "Gastos"
+                    ])
+
+                    # --- Lógica de renderizado actualizada y corregida ---
+                    with t_res: op_mostrar_tab_resumen(cierre)
+                    with t_ini: op_mostrar_reporte_denominaciones("Detalle Caja Inicial", cierre.get('saldo_inicial_detalle'))
+                    with t_fin: op_mostrar_reporte_denominaciones("Detalle Caja Final", cierre.get('saldo_final_detalle'))
+                    with t_verif: op_mostrar_reporte_verificacion(cierre.get('verificacion_pagos_detalle'))
+                    with t_gastos: op_mostrar_reporte_gastos(cierre['id'])
+
+
 
 # ==========================================================
 # PESTAÑA 2: REPORTE CDE (NUEVO MÓDULO)
