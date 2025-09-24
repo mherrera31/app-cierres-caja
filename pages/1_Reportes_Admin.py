@@ -57,6 +57,7 @@ with tab_op:
     st.header("Log de Cierres de Caja Operativos")
 
     # --- NUEVAS FUNCIONES AUXILIARES DE REPORTE ---
+            
     def op_mostrar_reporte_denominaciones(titulo, data_dict):
         st.subheader(titulo)
         if not data_dict or not data_dict.get('detalle'):
@@ -66,6 +67,56 @@ with tab_op:
         df = pd.DataFrame(df_data)
         st.dataframe(df, hide_index=True, use_container_width=True)
         st.metric(label=f"TOTAL CONTADO ({titulo})", value=f"${float(data_dict.get('total', 0)):,.2f}")
+
+    def op_mostrar_reporte_ingresos_adic(cierre_id):
+        st.subheader("Reporte de Ingresos Adicionales")
+        ingresos_lista, err = database.obtener_ingresos_adicionales_del_cierre(cierre_id)
+        if err:
+            st.error(f"Error: {err}")
+        elif not ingresos_lista:
+            st.info("No se registraron ingresos adicionales.")
+        else:
+            df_data = [{
+                "Socio": i.get('socios', {}).get('nombre', 'N/A'),
+                "Método": i.get('metodo_pago', 'N/A'),
+                "Monto": float(i.get('monto', 0)),
+                "Notas": i.get('notas', '')
+            } for i in ingresos_lista]
+             df = pd.DataFrame(df_data)
+             st.metric("TOTAL INGRESOS ADICIONALES", f"${df['Monto'].sum():,.2f}")
+             st.dataframe(df.style.format({"Monto": "${:,.2f}"}), hide_index=True, use_container_width=True)
+
+    def op_mostrar_reporte_delivery(cierre_id):
+        st.subheader("Reporte de Deliveries")
+        deliveries_lista, err = database.obtener_deliveries_del_cierre(cierre_id)
+        if err:
+            st.error(f"Error: {err}")
+        elif not deliveries_lista:
+            st.info("No se registraron deliveries.")
+        else:
+            df_data = []
+            for d in deliveries_lista:
+                cobrado = float(d.get('monto_cobrado', 0))
+                costo = float(d.get('costo_repartidor', 0))
+                df_data.append({
+                    "Origen": d.get('origen_nombre', 'N/A'),
+                    "Monto Cobrado": cobrado,
+                    "Costo Repartidor": costo,
+                    "Ganancia Neta": cobrado - costo,
+                    "Notas": d.get('notas', '')
+                })
+             df = pd.DataFrame(df_data)
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Cobrado", f"${df['Monto Cobrado'].sum():,.2f}")
+            col2.metric("Total Costo Repartidores", f"${df['Costo Repartidor'].sum():,.2f}")
+            col3.metric("Ganancia Neta Total", f"${df['Ganancia Neta'].sum():,.2f}")
+
+            st.dataframe(df.style.format({
+                "Monto Cobrado": "${:,.2f}",
+                "Costo Repartidor": "${:,.2f}",
+                "Ganancia Neta": "${:,.2f}"
+             }), hide_index=True, use_container_width=True)        
 
     def op_mostrar_tab_resumen(cierre_dict):
        st.subheader("Resumen del Cierre")
