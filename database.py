@@ -992,3 +992,27 @@ def admin_buscar_gastos_filtrados(fecha_inicio=None, fecha_fin=None, categoria_i
     except Exception as e:
         return [], f"Error al buscar gastos filtrados: {e}"
 
+def admin_buscar_deliveries_filtrados(fecha_inicio=None, fecha_fin=None, sucursal_id=None, usuario_id=None, origen_nombre=None):
+    """
+    Busca en la tabla cierre_delivery con múltiples filtros opcionales.
+    """
+    try:
+        query = supabase.table('cierre_delivery').select(
+            'created_at, monto_cobrado, costo_repartidor, origen_nombre, notas, perfiles(nombre), sucursales(sucursal)'
+        )
+        if fecha_inicio:
+            query = query.gte('created_at', f"{fecha_inicio} 00:00:00")
+        if fecha_fin:
+            query = query.lte('created_at', f"{fecha_fin} 23:59:59")
+        if sucursal_id:
+            query = query.eq('sucursal_id', sucursal_id)
+        if usuario_id:
+            query = query.eq('usuario_id', usuario_id)
+        if origen_nombre:
+            query = query.eq('origen_nombre', origen_nombre)
+
+        response = query.order('created_at', desc=True).execute()
+        return response.data, None
+    except Exception as e:
+        return [], f"Error al buscar deliveries filtrados: {e}"
+
