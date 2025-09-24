@@ -1016,3 +1016,26 @@ def admin_buscar_deliveries_filtrados(fecha_inicio=None, fecha_fin=None, sucursa
     except Exception as e:
         return [], f"Error al buscar deliveries filtrados: {e}"
 
+def admin_buscar_resumenes_para_analisis(fecha_inicio=None, fecha_fin=None, sucursal_id=None, usuario_id=None):
+    """
+    Obtiene los cierres y sus JSON 'resumen_del_dia' para el reporte de análisis.
+    """
+    try:
+        query = supabase.table('cierres_caja').select(
+            'fecha_operacion, resumen_del_dia, sucursales(sucursal), perfiles(nombre)'
+        ).not_.is_('resumen_del_dia', 'is', None) # Solo trae cierres con el nuevo resumen
+
+        if fecha_inicio:
+            query = query.gte('fecha_operacion', fecha_inicio)
+        if fecha_fin:
+            query = query.lte('fecha_operacion', fecha_fin)
+        if sucursal_id:
+            query = query.eq('sucursal_id', sucursal_id)
+        if usuario_id:
+            query = query.eq('usuario_id', usuario_id)
+
+        response = query.order('fecha_operacion', desc=True).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al buscar resúmenes para análisis: {e}"
+
