@@ -1,4 +1,5 @@
-# pages/5_Gestion_Carga.py
+# pages/4_Gestion_Carga.py
+# VERSIÓN FINAL - Filtro de fecha por defecto al inicio del mes y Multi-Sucursal
 
 import streamlit as st
 import database
@@ -92,18 +93,21 @@ st.divider()
 
 # 3. REPORTE Y EDITOR HISTÓRICO
 st.header("Reporte y Edición Histórica")
+
+# --- CAMBIO EN LAS FECHAS POR DEFECTO ---
 fecha_hasta_def = datetime.now(pytz.timezone('America/Panama')).date()
-fecha_desde_def = fecha_hasta_def - timedelta(days=30)
+fecha_desde_def = fecha_hasta_def.replace(day=1) # <-- Lógica para el primer día del mes
+# --- FIN DEL CAMBIO ---
+
 col_f1, col_f2, col_f3 = st.columns(3)
 filtro_fecha_desde = col_f1.date_input("Reporte Desde:", value=fecha_desde_def)
 filtro_fecha_hasta = col_f2.date_input("Reporte Hasta:", value=fecha_hasta_def)
 
-# NUEVO: Filtro Multi-Sucursal
 nombres_sucursales = list(opciones_sucursal.keys())
 sel_sucursales_reporte = col_f3.multiselect(
     "Filtrar por Sucursal(es):", 
     options=nombres_sucursales,
-    default=[sucursal_nombre_sel] # Por defecto selecciona la de arriba
+    default=[sucursal_nombre_sel]
 )
 
 if st.button("Buscar Historial", key="btn_buscar_historial"):
@@ -142,8 +146,6 @@ if 'historial_carga_df' in st.session_state and not st.session_state['historial_
     total_facturado_rango = df_reporte['Facturado'].sum()
     total_retirado_rango = df_reporte['Retirado'].sum()
     ganancia_bruta_rango = total_facturado_rango - total_retirado_rango
-    
-    # Para el stock, tomamos el máximo valor por sucursal dentro del rango y luego sumamos
     stock_final_rango = df_reporte.loc[df_reporte.groupby('Sucursal')['Fecha'].idxmax()]['Sin Retirar (Acum.)'].sum()
     ganancia_real_rango = ganancia_bruta_rango - stock_final_rango
 
@@ -168,8 +170,35 @@ if 'historial_carga_df' in st.session_state and not st.session_state['historial_
     )
 
     if st.button("Guardar Cambios", type="primary", disabled=(rol_usuario != 'admin')):
-        # Lógica de guardado
-        pass # Tu lógica de guardado aquí
+        cambios = []
+        df_original = st.session_state['historial_carga_df'].set_index('id')
+        df_editado_indexed = df_editado.set_index('id')
+        
+        for idx in df_editado_indexed.index:
+            if not df_editado_indexed.loc[idx].equals(df_original.loc[idx]):
+                cambios.append((idx, {
+                    'carga_facturada': df_editado_indexed.loc[idx, 'Facturado'],
+                    'carga_retirada': df_editado_indexed.loc[idx, 'Retirado'],
+                    'carga_sin_retirar': df_editado_indexed.loc[idx, 'Sin Retirar (Acum.)']
+                }))
+
+        if not cambios:
+            st.info("No se detectaron cambios para guardar.")
+        else:
+            with st.spinner(f"Guardando {len(cambios)} cambio(s)..."):
+                errores = []
+                for registro_id, datos in cambios:
+                    _, err = database.admin_actualizar_registro_carga(registro_id, datos)
+                    if err: errores.append(f"ID {registro_id}: {err}")
+            
+            if errores:
+                st.error("Ocurrieron errores al guardar:")
+                st.json(errores)
+            else:
+                st.success("¡Cambios guardados con éxito!")
+                st.cache_data.clear()
+                del st.session_state['historial_carga_df']
+                st.rerun()
 
     if rol_usuario != 'admin':
         st.warning("La edición está deshabilitada. Solo los administradores pueden guardar cambios.")
