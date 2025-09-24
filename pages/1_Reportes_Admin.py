@@ -82,9 +82,9 @@ with tab_op:
                 "Monto": float(i.get('monto', 0)),
                 "Notas": i.get('notas', '')
             } for i in ingresos_lista]
-             df = pd.DataFrame(df_data)
-             st.metric("TOTAL INGRESOS ADICIONALES", f"${df['Monto'].sum():,.2f}")
-             st.dataframe(df.style.format({"Monto": "${:,.2f}"}), hide_index=True, use_container_width=True)
+            df = pd.DataFrame(df_data)
+            st.metric("TOTAL INGRESOS ADICIONALES", f"${df['Monto'].sum():,.2f}")
+            st.dataframe(df.style.format({"Monto": "${:,.2f}"}), hide_index=True, use_container_width=True)
 
     def op_mostrar_reporte_delivery(cierre_id):
         st.subheader("Reporte de Deliveries")
