@@ -1039,3 +1039,32 @@ def admin_buscar_resumenes_para_analisis(fecha_inicio=None, fecha_fin=None, sucu
     except Exception as e:
         return None, f"Error al buscar resúmenes para análisis: {e}"
 
+def get_registros_carga_rango(sucursal_id, fecha_inicio=None, fecha_fin=None):
+    """
+    Obtiene el historial de registros de carga para una sucursal en un rango de fechas.
+    """
+    try:
+        query = supabase.table('cierre_registros_carga').select(
+            'id, fecha_operacion, carga_facturada, carga_retirada, carga_sin_retirar, perfiles(nombre)'
+        ).eq('sucursal_id', sucursal_id)
+        
+        if fecha_inicio:
+            query = query.gte('fecha_operacion', fecha_inicio)
+        if fecha_fin:
+            query = query.lte('fecha_operacion', fecha_fin)
+            
+        response = query.order('fecha_operacion', desc=True).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al obtener historial de carga: {e}"
+
+def admin_actualizar_registro_carga(registro_id, datos_actualizados):
+    """
+    Actualiza un registro de carga específico por su ID.
+    """
+    try:
+        response = supabase.table('cierre_registros_carga').update(datos_actualizados).eq('id', registro_id).execute()
+        return response.data, None
+    except Exception as e:
+        return None, f"Error al actualizar el registro de carga: {e}"
+
