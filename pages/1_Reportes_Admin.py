@@ -79,7 +79,7 @@ with tab_op:
        if cierre_dict.get('discrepancia_saldo_inicial'):
            st.info("ℹ️ Este cierre inició con una discrepancia en el saldo inicial.")
 
-    resumen_guardado = cierre_dict.get('resumen_del_dia')
+       resumen_guardado = cierre_dict.get('resumen_del_dia')
        if not resumen_guardado:
         # Lógica para cierres con formato antiguo
            st.info("Mostrando datos de un cierre con formato antiguo.")
