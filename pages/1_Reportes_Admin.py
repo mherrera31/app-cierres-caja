@@ -356,59 +356,67 @@ with tab_cde:
 # PESTAÑA 3: ANÁLISIS DE INGRESOS
 # ==========================================================
 with tab_analisis:
-    st.header("Análisis de Ingresos por Cierre Verificado")
-    st.info("Este reporte extrae los totales de ingresos del resumen guardado en cada cierre.")
+    st.header("Análisis de Ingresos (Desde Resumen Guardado)")
 
-    sucursales_db, usuarios_db, metodos_db, socios_db, _ = cargar_filtros_data_basicos()
-
-    st.subheader("Filtros (Todos opcionales)")
-    
-    col_f1, col_f2 = st.columns(2)
-    fecha_ini_agg = col_f1.date_input("Fecha Desde", value=None, key="analisis_fi")
-    fecha_fin_agg = col_f2.date_input("Fecha Hasta", value=None, key="analisis_ff")
-
-    col_f3, col_f4 = st.columns(2)
+    # --- Filtros Principales ---
+    st.subheader("Filtros")
+    sucursales_db, usuarios_db, _, _, _ = cargar_filtros_data_basicos()
     op_suc = {"TODAS": None, **{s['sucursal']: s['id'] for s in sucursales_db}}
-    sel_suc_id = op_suc[col_f3.selectbox("Sucursal", options=op_suc.keys(), key="analisis_s")]
     op_user = {"TODOS": None, **{u['nombre']: u['id'] for u in usuarios_db}}
-    sel_user_id = op_user[col_f4.selectbox("Usuario", options=op_user.keys(), key="analisis_u")]
-    
-    col_f5, col_f6 = st.columns(2)
-    opciones_socio_psc = {"TODOS": None, "Ventas (POS)": "ventas_pos", **{s['nombre']: s['id'] for s in socios_db}}
-    sel_socio_llave = col_f5.selectbox("Filtrar por Socio o Ventas (POS)", options=opciones_socio_psc.keys(), key="analisis_socio")
-    socio_id_filtrar = opciones_socio_psc[sel_socio_llave]
-    op_metodo = {"TODOS": None, **{m['nombre']: m['nombre'] for m in metodos_db}}
-    sel_metodo = op_metodo[col_f6.selectbox("Método de Pago", options=op_metodo.keys(), key="analisis_m")]
+
+    col1, col2, col3 = st.columns(3)
+    fecha_ini = col1.date_input("Fecha Desde", value=None, key="analisis_fi_new")
+    fecha_fin = col2.date_input("Fecha Hasta", value=None, key="analisis_ff_new")
+    sel_suc_id = op_suc[col3.selectbox("Sucursal", options=op_suc.keys(), key="analisis_s_new")]
+    sel_user_id = op_user[st.selectbox("Usuario", options=op_user.keys(), key="analisis_u_new")]
 
     if st.button("Generar Reporte de Ingresos", type="primary"):
-        str_ini = fecha_ini_agg.strftime('%Y-%m-%d') if fecha_ini_agg else None
-        str_fin = fecha_fin_agg.strftime('%Y-%m-%d') if fecha_fin_agg else None
-        socio_id_param = None
-        if socio_id_filtrar and socio_id_filtrar != "ventas_pos":
-            socio_id_param = socio_id_filtrar
-        
-        with st.spinner("Generando reporte..."):
-            data, err = database.admin_reporte_ingresos_json(
+        str_ini = fecha_ini.strftime('%Y-%m-%d') if fecha_ini else None
+        str_fin = fecha_fin.strftime('%Y-%m-%d') if fecha_fin else None
+
+        with st.spinner("Procesando resúmenes de cierre..."):
+            cierres, err = database.admin_buscar_resumenes_para_analisis(
                 fecha_inicio=str_ini, fecha_fin=str_fin,
-                sucursal_id=sel_suc_id, usuario_id=sel_user_id,
-                metodo_pago=sel_metodo, socio_id=socio_id_param
+                sucursal_id=sel_suc_id, usuario_id=sel_user_id
             )
-        
-        st.subheader("Resultados: Ingresos Verificados")
-        if err: st.error(f"Error: {err}")
-        elif not data: st.warning("No se encontraron ingresos para los filtros seleccionados.")
+
+        if err:
+            st.error(f"Error al cargar los datos: {err}")
+        elif not cierres:
+            st.warning("No se encontraron cierres con un resumen de ingresos para los filtros seleccionados.")
         else:
-            df = pd.DataFrame(data).astype({'total_sistema': float})
-            if socio_id_filtrar == "ventas_pos":
-                df = df[df['fuente'].str.contains("Ventas", na=False)]
+            # --- Procesamiento de datos (Desempaquetar el JSON) ---
+            flat_data = []
+            for cierre in cierres:
+                resumen = cierre.get('resumen_del_dia', {})
+                info_base = {
+                    "Fecha": cierre['fecha_operacion'],
+                    "Sucursal": cierre.get('sucursales', {}).get('sucursal', 'N/A'),
+                    "Usuario": cierre.get('perfiles', {}).get('nombre', 'N/A')
+                }
+                
+                for item in resumen.get('desglose_rayo', []):
+                    flat_data.append({**info_base, "Fuente": "Rayo (POS)", "Metodo": item['metodo'], "Tipo": item['tipo'], "Total": item['total']})
+                
+                for socio in resumen.get('totales_por_socio', []):
+                    for desglose in socio.get('desglose', []):
+                        flat_data.append({**info_base, "Fuente": socio['socio'], "Metodo": desglose['metodo'], "Tipo": "externo", "Total": desglose['total']})
 
-            st.metric("Total General Ingresado (Según filtros)", f"${df['total_sistema'].sum():,.2f}")
-            st.dataframe(df.style.format({"total_sistema": "${:,.2f}"}), width='stretch')
-            st.subheader("Totales por Método de Pago")
-            df_grouped = df.groupby('metodo_pago')['total_sistema'].sum().sort_values(ascending=False)
-            st.bar_chart(df_grouped)
+            df = pd.DataFrame(flat_data)
+            df['Total'] = pd.to_numeric(df['Total'])
 
-    st.info("**Nota Importante:** Este reporte no puede filtrar por Socio individual, ya que el resumen `verificacion_pagos_detalle` guarda los totales de forma consolidada.")
+            st.divider()
+            st.subheader("Resultados del Análisis")
+            st.metric("Ingreso Total (según filtros)", f"${df['Total'].sum():,.2f}")
+
+            st.markdown("**Totales por Fuente de Ingreso**")
+            st.dataframe(df.groupby('Fuente')['Total'].sum().sort_values(ascending=False).map('${:,.2f}'.format))
+
+            st.markdown("**Totales por Método de Pago**")
+            st.dataframe(df.groupby('Metodo')['Total'].sum().sort_values(ascending=False).map('${:,.2f}'.format))
+
+            with st.expander("Ver detalle completo"):
+                st.dataframe(df.style.format({"Total": "${:,.2f}"}), hide_index=True, use_container_width=True)
 
 # ==========================================================
 # PESTAÑA 4: REPORTE DE GASTOS (NUEVA)
