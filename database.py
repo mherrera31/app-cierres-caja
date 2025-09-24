@@ -967,3 +967,28 @@ def guardar_resumen_del_dia(cierre_id, resumen_json):
     except Exception as e:
         return None, f"Error al guardar el resumen del día: {e}"
 
+def admin_buscar_gastos_filtrados(fecha_inicio=None, fecha_fin=None, categoria_id=None, sucursal_id=None, usuario_id=None):
+    """
+    Busca en la tabla gastos_caja con múltiples filtros opcionales.
+    """
+    try:
+        query = supabase.table('gastos_caja').select(
+            'created_at, monto, notas, sucursal, gastos_categorias(nombre), perfiles(nombre)'
+        )
+        if fecha_inicio:
+            # Aseguramos que la fecha incluya todo el día
+            query = query.gte('created_at', f"{fecha_inicio} 00:00:00")
+        if fecha_fin:
+            query = query.lte('created_at', f"{fecha_fin} 23:59:59")
+        if categoria_id:
+            query = query.eq('categoria_id', categoria_id)
+        if sucursal_id:
+            query = query.eq('sucursal_id', sucursal_id)
+        if usuario_id:
+            query = query.eq('usuario_id', usuario_id)
+
+        response = query.order('created_at', desc=True).execute()
+        return response.data, None
+    except Exception as e:
+        return [], f"Error al buscar gastos filtrados: {e}"
+
