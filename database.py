@@ -660,8 +660,8 @@ def obtener_metodos_pago_cde():
 
 def calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre):
     """
-    Calcula la suma de todos los pagos (de la tabla 'pagos') agrupados por método.
-    (Parcheado con verificación 'is None')
+    (Versión Corregida) Calcula la suma de todos los pagos (de la tabla 'pagos') 
+    usando Decimal para todos los cálculos para evitar TypeErrors.
     """
     try:
         tz_panama = pytz.timezone('America/Panama')
@@ -682,12 +682,13 @@ def calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre):
         if not pagos:
             return {}, 0.0, None 
 
+        # --- CORRECCIÓN: Usar Decimal para todos los contadores ---
         totales_por_metodo = {}
-        total_efectivo = 0.0
+        total_efectivo = Decimal('0.0') # <-- CORREGIDO
         
         for pago in pagos:
             metodo = pago['metodo_pago']
-            monto = Decimal(str(pago.get('monto', 0)))
+            monto = Decimal(str(pago.get('monto', 0) or 0)) # <-- CORREGIDO
             
             if metodo.lower() == 'efectivo':
                 total_efectivo += monto
@@ -696,6 +697,7 @@ def calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre):
                     totales_por_metodo[metodo] = Decimal('0.00')
                 totales_por_metodo[metodo] += monto
 
+        # Convertir a float solo al final, antes de devolver
         totales_por_metodo_float = {k: float(v) for k, v in totales_por_metodo.items()}
         return totales_por_metodo_float, float(total_efectivo), None
 
