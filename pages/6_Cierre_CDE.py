@@ -1,5 +1,5 @@
 # pages/6_Cierre_CDE.py
-# VERSIÓN 8 (Lógica de Resumen y Verificación adaptada de 5_Cierre_de_Caja.py)
+# VERSIÓN FINAL (Lógica de Resumen y Verificación adaptada de 5_Cierre_de_Caja.py)
 
 import streamlit as st
 import sys
@@ -77,17 +77,12 @@ def cargar_totales_sistema(fecha, sucursal_nombre):
 
 totales_sistema_metodos_dict, total_sistema_efectivo = cargar_totales_sistema(fecha_hoy_str, sucursal_nombre_sel)
 
-# --- 3. BUSCAR/CREAR CIERRE CDE ---
-cierre_cde_actual, err_busqueda = database.buscar_cierre_cde_existente_hoy(fecha_hoy_str, sucursal_id_actual)
-if err_busqueda:
-    st.error(f"Error fatal al buscar cierre: {err_busqueda}")
-    st.stop()
-
-# --- 4. RESUMEN DE INGRESOS DEL SISTEMA (MOVIDO ARRIBA) ---
+# --- 3. RESUMEN DE INGRESOS DEL SISTEMA (MOVIDO ARRIBA) ---
 st.subheader("Resumen de Ingresos del Día (Según Sistema Rayo/POS)")
 total_yappy_sistema = Decimal(str(totales_sistema_metodos_dict.get('Yappy', 0.0)))
 total_tc_sistema = Decimal(str(totales_sistema_metodos_dict.get('Tarjeta Credito', 0.0)))
 total_td_sistema = Decimal(str(totales_sistema_metodos_dict.get('Tarjeta Clave', 0.0)))
+# (Añadir otros si es necesario)
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Efectivo (Sistema)", f"${Decimal(total_sistema_efectivo):,.2f}")
@@ -100,6 +95,12 @@ if st.button("🔄 Refrescar Totales del Sistema"):
     st.success("Totales del sistema refrescados.")
     st.rerun()
 st.divider()
+
+# --- 4. BUSCAR/CREAR CIERRE CDE ---
+cierre_cde_actual, err_busqueda = database.buscar_cierre_cde_existente_hoy(fecha_hoy_str, sucursal_id_actual)
+if err_busqueda:
+    st.error(f"Error fatal al buscar cierre: {err_busqueda}")
+    st.stop()
 
 # --- 5. LÓGICA DE ESTADO ---
 if cierre_cde_actual and cierre_cde_actual.get('estado') == 'CERRADO':
@@ -140,15 +141,15 @@ all_match_ok = True
 widget_data_files = {}
 
 with st.form(key="form_conteo_cde"):
-    tab_efectivo, tab_verificacion = st.tabs(["💵 Conteo de Efectivo", "💳 Verificación y Reportes"])
+    tab_efectivo, tab_verificacion = st.tabs(["💵 Conteo de Efectivo", "💳 Verificación de Métodos"])
 
     with tab_efectivo:
         st.subheader("1. Conteo Físico de Efectivo")
         total_efectivo_sistema_guardado = Decimal(str(cierre_cde_actual.get('total_efectivo_sistema', 0.0)))
         st.metric("Total Efectivo del Sistema (Capturado al Abrir)", f"${total_efectivo_sistema_guardado:,.2f}")
         
-        total_calculado_fisico = Decimal('0.00')
         inputs_conteo = {}
+        total_calculado_fisico = Decimal('0.00')
         for den in DENOMINACIONES:
             nombre = den['nombre']
             cantidad_guardada = detalle_efectivo_guardado.get(nombre, {}).get('cantidad', 0)
