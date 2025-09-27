@@ -1,23 +1,15 @@
 # pages/6_Cierre_CDE.py
-# VERSIÓN FINAL (Lógica de Resumen y Verificación adaptada de 5_Cierre_de_Caja.py)
+# VERSIÓN FINAL (Lógica de Resumen y Verificación corregida)
 
 import streamlit as st
-import sys
-import os
-import database
-import pytz
+import sys, os, database, pytz, tempfile, json
 from datetime import datetime
 from decimal import Decimal
-import tempfile 
-import json
 
-# --- BLOQUE DE CORRECCIÓN DE IMPORTPATH ---
+# --- (Bloque de ImportPath y Guardián de Seguridad - sin cambios) ---
 script_dir = os.path.dirname(__file__)
 project_root = os.path.abspath(os.path.join(script_dir, '..'))
 sys.path.append(project_root)
-# --- FIN DEL BLOQUE ---
-
-# --- GUARDIÁN DE SEGURIDAD (ROL CDE / ADMIN) ---
 rol_usuario = st.session_state.get("perfil", {}).get("rol")
 if rol_usuario not in ['admin', 'cde']:
     st.error("Acceso denegado. 🚫 Esta sección es solo para roles CDE y Administradores.")
@@ -66,7 +58,7 @@ fecha_hoy_str = datetime.now(tz_panama).strftime('%Y-%m-%d')
 
 st.header(f"Verificación para: {sucursal_nombre_sel} | Fecha: {fecha_hoy_str}")
 
-# --- 2. CARGAR TOTALES DEL SISTEMA ---
+# --- 2. CARGAR TOTALES DEL SISTEMA Y MOSTRAR RESUMEN ---
 @st.cache_data(ttl=60) 
 def cargar_totales_sistema(fecha, sucursal_nombre):
     totales_metodos, total_efectivo, err = database.calcular_totales_pagos_dia_sucursal(fecha, sucursal_nombre)
@@ -77,32 +69,34 @@ def cargar_totales_sistema(fecha, sucursal_nombre):
 
 totales_sistema_metodos_dict, total_sistema_efectivo = cargar_totales_sistema(fecha_hoy_str, sucursal_nombre_sel)
 
-# --- 3. RESUMEN DE INGRESOS DEL SISTEMA (MOVIDO ARRIBA) ---
 st.subheader("Resumen de Ingresos del Día (Según Sistema Rayo/POS)")
-total_yappy_sistema = Decimal(str(totales_sistema_metodos_dict.get('Yappy', 0.0)))
-total_tc_sistema = Decimal(str(totales_sistema_metodos_dict.get('Tarjeta Credito', 0.0)))
-total_td_sistema = Decimal(str(totales_sistema_metodos_dict.get('Tarjeta Clave', 0.0)))
-# (Añadir otros si es necesario)
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Efectivo (Sistema)", f"${Decimal(total_sistema_efectivo):,.2f}")
-col2.metric("Total Yappy (Sistema)", f"${total_yappy_sistema:,.2f}")
-col3.metric("Total Tarjeta Crédito (Sistema)", f"${total_tc_sistema:,.2f}")
-col4.metric("Total Tarjeta Débito/Clave (Sistema)", f"${total_td_sistema:,.2f}")
+# Extraer solo los métodos que son CDE para el resumen
+metodos_pago_cde_lista, _ = database.obtener_metodos_pago_cde()
+nombres_metodos_cde = {m['nombre'] for m in metodos_pago_cde_lista}
+
+col_data = {"Efectivo": Decimal(total_sistema_efectivo)}
+for nombre, total in totales_sistema_metodos_dict.items():
+    if nombre in nombres_metodos_cde:
+        col_data[nombre] = Decimal(str(total))
+
+# Mostrar en métricas
+cols = st.columns(len(col_data) if col_data else 1)
+for i, (metodo, total) in enumerate(col_data.items()):
+    cols[i].metric(f"Total {metodo} (Sistema)", f"${total:,.2f}")
 
 if st.button("🔄 Refrescar Totales del Sistema"):
     cargar_totales_sistema.clear()
-    st.success("Totales del sistema refrescados.")
     st.rerun()
 st.divider()
 
-# --- 4. BUSCAR/CREAR CIERRE CDE ---
+# --- 3. BUSCAR/CREAR CIERRE CDE ---
 cierre_cde_actual, err_busqueda = database.buscar_cierre_cde_existente_hoy(fecha_hoy_str, sucursal_id_actual)
 if err_busqueda:
     st.error(f"Error fatal al buscar cierre: {err_busqueda}")
     st.stop()
 
-# --- 5. LÓGICA DE ESTADO ---
+# --- 4. LÓGICA DE ESTADO ---
 if cierre_cde_actual and cierre_cde_actual.get('estado') == 'CERRADO':
     st.success(f"El Cierre CDE para hoy ya fue FINALIZADO.")
     st.stop()
@@ -115,27 +109,15 @@ if not cierre_cde_actual:
         if err_crear: st.error(f"Error: {err_crear}")
         else:
             st.success("¡Cierre creado! Recargando...")
-            cargar_totales_sistema.clear() 
-            st.rerun()
+            cargar_totales_sistema.clear(); st.rerun()
     st.stop() 
 
 cierre_cde_id = cierre_cde_actual['id']
-
-# --- 6. CARGAR DEPENDENCIAS DEL FORMULARIO ---
-@st.cache_data(ttl=600)
-def cargar_metodos_cde_activos():
-    metodos, err = database.obtener_metodos_pago_cde()
-    if err:
-        st.error(f"Error cargando métodos CDE: {err}")
-        return []
-    return metodos
-
-metodos_pago_cde_lista = cargar_metodos_cde_activos()
 conteo_efectivo_guardado = cierre_cde_actual.get('detalle_conteo_efectivo') or {}
 detalle_efectivo_guardado = conteo_efectivo_guardado.get('detalle', {})
 verificacion_metodos_guardado = cierre_cde_actual.get('verificacion_metodos') or {}
 
-# --- 7. FORMULARIO PRINCIPAL ---
+# --- 5. FORMULARIO PRINCIPAL ---
 st.subheader("Formulario de Conteo y Verificación Manual")
 all_match_ok = True 
 widget_data_files = {}
@@ -223,10 +205,10 @@ if submitted:
         st.rerun()
 st.divider()
 
-# --- 8. SECCIÓN DE FINALIZACIÓN ---
+# --- 6. SECCIÓN DE FINALIZACIÓN ---
 st.header("Finalización del Cierre CDE")
 if all_match_ok: st.info("Todo cuadrado. El cierre puede ser finalizado.")
-else: st.error("Existen discrepancias en Efectivo o en Métodos CDE. Revisa los conteos.")
+else: st.error("Existen discrepancias. Revisa los conteos.")
 
 if st.button("FINALIZAR CIERRE CDE", type="primary", disabled=not all_match_ok, key="btn_finalizar"):
     with st.spinner("Finalizando..."):
@@ -239,7 +221,7 @@ if st.button("FINALIZAR CIERRE CDE", type="primary", disabled=not all_match_ok, 
         st.rerun()
 
 if not all_match_ok and rol_usuario == 'admin':
-    st.warning("ADMIN: El cierre presenta un DESCUADRE. Puedes forzar la finalización.")
+    st.warning("ADMIN: El cierre presenta un DESCUADRE.")
     if st.button("Forzar Cierre con Discrepancia (Admin)", key="btn_forzar"):
         with st.spinner("Forzando finalización..."):
             _, err_final = database.finalizar_cierre_cde(cierre_cde_id, con_discrepancia=True)
