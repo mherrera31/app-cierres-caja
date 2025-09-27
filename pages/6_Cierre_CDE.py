@@ -1,5 +1,5 @@
 # pages/6_Cierre_CDE.py
-# VERSIÓN 7 (Lógica de Resumen y Verificación adaptada de 5_Cierre_de_Caja.py)
+# VERSIÓN 8 (Lógica de Resumen y Verificación adaptada de 5_Cierre_de_Caja.py)
 
 import streamlit as st
 import sys
@@ -66,12 +66,6 @@ fecha_hoy_str = datetime.now(tz_panama).strftime('%Y-%m-%d')
 
 st.header(f"Verificación para: {sucursal_nombre_sel} | Fecha: {fecha_hoy_str}")
 
-if st.button("🔄 Refrescar Totales del Sistema (Pagos)"):
-    cargar_totales_sistema.clear()
-    st.success("Totales del sistema refrescados.")
-    st.rerun()
-st.divider()
-
 # --- 2. CARGAR TOTALES DEL SISTEMA ---
 @st.cache_data(ttl=60) 
 def cargar_totales_sistema(fecha, sucursal_nombre):
@@ -89,28 +83,44 @@ if err_busqueda:
     st.error(f"Error fatal al buscar cierre: {err_busqueda}")
     st.stop()
 
-# --- 4. LÓGICA DE ESTADO ---
+# --- 4. RESUMEN DE INGRESOS DEL SISTEMA (MOVIDO ARRIBA) ---
+st.subheader("Resumen de Ingresos del Día (Según Sistema Rayo/POS)")
+total_yappy_sistema = Decimal(str(totales_sistema_metodos_dict.get('Yappy', 0.0)))
+total_tc_sistema = Decimal(str(totales_sistema_metodos_dict.get('Tarjeta Credito', 0.0)))
+total_td_sistema = Decimal(str(totales_sistema_metodos_dict.get('Tarjeta Clave', 0.0)))
+
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Total Efectivo (Sistema)", f"${Decimal(total_sistema_efectivo):,.2f}")
+col2.metric("Total Yappy (Sistema)", f"${total_yappy_sistema:,.2f}")
+col3.metric("Total Tarjeta Crédito (Sistema)", f"${total_tc_sistema:,.2f}")
+col4.metric("Total Tarjeta Débito/Clave (Sistema)", f"${total_td_sistema:,.2f}")
+
+if st.button("🔄 Refrescar Totales del Sistema"):
+    cargar_totales_sistema.clear()
+    st.success("Totales del sistema refrescados.")
+    st.rerun()
+st.divider()
+
+# --- 5. LÓGICA DE ESTADO ---
 if cierre_cde_actual and cierre_cde_actual.get('estado') == 'CERRADO':
     st.success(f"El Cierre CDE para hoy ya fue FINALIZADO.")
     st.stop()
 
 if not cierre_cde_actual:
     st.warning("No se ha iniciado el Cierre CDE para esta sucursal hoy.")
-    st.metric("Total Efectivo (Sistema detectado)", f"${Decimal(total_sistema_efectivo):,.2f}")
     if st.button("▶️ Abrir Cierre de Verificación CDE", type="primary"):
-        with st.spinner("Creando nuevo cierre CDE..."):
+        with st.spinner("Creando nuevo cierre..."):
             _, err_crear = database.crear_nuevo_cierre_cde(fecha_hoy_str, sucursal_id_actual, usuario_id_actual)
-        if err_crear:
-            st.error(f"Error al crear cierre: {err_crear}")
+        if err_crear: st.error(f"Error: {err_crear}")
         else:
-            st.success("¡Cierre CDE creado! Recargando...")
+            st.success("¡Cierre creado! Recargando...")
             cargar_totales_sistema.clear() 
             st.rerun()
     st.stop() 
 
 cierre_cde_id = cierre_cde_actual['id']
 
-# --- 5. CARGAR DEPENDENCIAS DEL FORMULARIO ---
+# --- 6. CARGAR DEPENDENCIAS DEL FORMULARIO ---
 @st.cache_data(ttl=600)
 def cargar_metodos_cde_activos():
     metodos, err = database.obtener_metodos_pago_cde()
@@ -124,7 +134,7 @@ conteo_efectivo_guardado = cierre_cde_actual.get('detalle_conteo_efectivo') or {
 detalle_efectivo_guardado = conteo_efectivo_guardado.get('detalle', {})
 verificacion_metodos_guardado = cierre_cde_actual.get('verificacion_metodos') or {}
 
-# --- 6. FORMULARIO PRINCIPAL ---
+# --- 7. FORMULARIO PRINCIPAL ---
 st.subheader("Formulario de Conteo y Verificación Manual")
 all_match_ok = True 
 widget_data_files = {}
@@ -146,7 +156,7 @@ with st.form(key="form_conteo_cde"):
             inputs_conteo[nombre] = {"cantidad": cantidad, "valor": den['valor']}
             total_calculado_fisico += Decimal(str(cantidad)) * Decimal(str(den['valor']))
         
-        st.header(f"Total Contado Físico: ${total_calculado_fisico:,.2f}")
+        st.header(f"Total Contado Físico (Manual): ${total_calculado_fisico:,.2f}")
         diferencia_efectivo = total_calculado_fisico - total_efectivo_sistema_guardado
         cash_match_ok = abs(diferencia_efectivo) < Decimal('0.01')
         if not cash_match_ok: all_match_ok = False 
@@ -210,30 +220,6 @@ if submitted:
         st.success("Conteos y fotos guardados con éxito.")
         cargar_totales_sistema.clear()
         st.rerun()
-st.divider()
-
-# --- 7. RESUMEN DE INGRESOS (ADAPTADO DEL REPORTE ADMIN) ---
-st.subheader("Resumen de Ingresos del Día (Según lo guardado)")
-
-total_efectivo_contado = Decimal(str(cierre_cde_actual.get('total_efectivo_contado', 0) or 0))
-total_yappy = Decimal('0.0')
-total_tarjeta_credito = Decimal('0.0')
-total_tarjeta_debito = Decimal('0.0')
-
-if verificacion_metodos_guardado:
-    for metodo, data in verificacion_metodos_guardado.items():
-        if isinstance(data, dict):
-            m_lower = metodo.lower()
-            total_manual = Decimal(str(data.get("total_manual", 0) or 0))
-            if "yappy" in m_lower: total_yappy += total_manual
-            elif "credito" in m_lower: total_tarjeta_credito += total_manual
-            elif "debito" in m_lower or "clave" in m_lower: total_tarjeta_debito += total_manual
-
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Efectivo Contado", f"${total_efectivo_contado:,.2f}")
-col2.metric("Total Yappy (Verificado)", f"${total_yappy:,.2f}")
-col3.metric("Total Tarjeta Crédito (Verificado)", f"${total_tarjeta_credito:,.2f}")
-col4.metric("Total Tarjeta Débito/Clave (Verificado)", f"${total_tarjeta_debito:,.2f}")
 st.divider()
 
 # --- 8. SECCIÓN DE FINALIZACIÓN ---
