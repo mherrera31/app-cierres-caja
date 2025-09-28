@@ -127,11 +127,16 @@ with st.form(key="form_conteo_cde"):
 
     with tab_efectivo:
         st.subheader("1. Conteo Físico de Efectivo")
-        total_efectivo_sistema_guardado = Decimal(str(cierre_cde_actual.get('total_efectivo_sistema', 0.0)))
-        st.metric("Total Efectivo del Sistema (Capturado al Abrir)", f"${total_efectivo_sistema_guardado:,.2f}")
+        
+        # --- CORRECCIÓN: Usamos el total EN VIVO del sistema, no el guardado ---
+        total_efectivo_sistema_live = Decimal(str(total_sistema_efectivo))
+        st.metric("Total Efectivo del Sistema (Rayo/POS)", f"${total_efectivo_sistema_live:,.2f}")
+        # --- FIN DE LA CORRECCIÓN ---
         
         inputs_conteo = {}
         total_calculado_fisico = Decimal('0.00')
+        
+        # (El generador de contadores de denominación no cambia)
         for den in DENOMINACIONES:
             nombre = den['nombre']
             cantidad_guardada = detalle_efectivo_guardado.get(nombre, {}).get('cantidad', 0)
@@ -140,10 +145,19 @@ with st.form(key="form_conteo_cde"):
             total_calculado_fisico += Decimal(str(cantidad)) * Decimal(str(den['valor']))
         
         st.header(f"Total Contado Físico (Manual): ${total_calculado_fisico:,.2f}")
-        diferencia_efectivo = total_calculado_fisico - total_efectivo_sistema_guardado
+
+        # --- CORRECCIÓN: La diferencia ahora se calcula contra el total EN VIVO ---
+        diferencia_efectivo = total_calculado_fisico - total_efectivo_sistema_live
         cash_match_ok = abs(diferencia_efectivo) < Decimal('0.01')
-        if not cash_match_ok: all_match_ok = False 
-        st.metric("DIFERENCIA DE EFECTIVO", f"${diferencia_efectivo:,.2f}", delta="CUADRADO" if cash_match_ok else "DESCUADRE", delta_color="normal" if cash_match_ok else "inverse")
+        if not cash_match_ok: 
+            all_match_ok = False 
+
+        st.metric(
+            label="DIFERENCIA DE EFECTIVO (Físico vs. Sistema)",
+            value=f"${diferencia_efectivo:,.2f}",
+            delta="CUADRADO" if cash_match_ok else "DESCUADRE",
+            delta_color="normal" if cash_match_ok else "inverse"
+        )
 
     with tab_verificacion:
         st.subheader("2. Verificación Manual de Métodos")
