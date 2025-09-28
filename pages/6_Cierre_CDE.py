@@ -1,5 +1,5 @@
 # pages/6_Cierre_CDE.py
-# VERSIÓN FINAL (Lógica de Resumen y Verificación basada en reglas 'interno'/'externo')
+# VERSIÓN FINAL (Lógica de Resumen y Verificación basada en reglas 'interno'/'externo' y 'requiere_conteo')
 
 import streamlit as st
 import sys, os, database, pytz, tempfile, json
@@ -154,13 +154,13 @@ with st.form(key="form_conteo_cde"):
         st.subheader("2. Verificación Manual de Métodos")
         verificacion_json_output = {} 
         
-        metodos_externos = [m for m in metodos_pago_cde_lista if m.get('tipo') == 'externo']
-        metodos_internos = [m for m in metodos_pago_cde_lista if m.get('tipo') == 'interno']
+        metodos_a_verificar = [m for m in metodos_pago_cde_lista if m.get('requiere_conteo')]
+        metodos_informativos = [m for m in metodos_pago_cde_lista if not m.get('requiere_conteo')]
 
-        st.markdown("#### Métodos Externos (Requerido para Cuadre)")
-        if not metodos_externos: st.info("No hay métodos externos configurados como 'is_cde = true'.")
+        st.markdown("#### Métodos a Verificar (Requerido para Cuadre)")
+        if not metodos_a_verificar: st.info("No hay métodos configurados que requieran conteo.")
         
-        for metodo in metodos_externos:
+        for metodo in metodos_a_verificar:
             nombre_metodo = metodo['nombre']
             total_sistema = Decimal(str(totales_sistema_metodos_dict.get(nombre_metodo, 0.0)))
             metodo_guardado_obj = verificacion_metodos_guardado.get(nombre_metodo, {})
@@ -182,17 +182,17 @@ with st.form(key="form_conteo_cde"):
                 file_uploader = st.file_uploader(f"Subir foto voucher {nombre_metodo}", type=["jpg", "jpeg", "png"], key=f"file_cde_{metodo['id']}")
                 widget_data_files[nombre_metodo] = {"widget_obj": file_uploader, "url_guardada_previa": url_foto_guardada}
 
-            verificacion_json_output[nombre_metodo] = {"total_manual": float(valor_manual), "total_sistema": float(total_sistema), "match_ok": metodo_match_ok, "url_foto": url_foto_guardada, "tipo": "externo"}
+            verificacion_json_output[nombre_metodo] = {"total_manual": float(valor_manual), "total_sistema": float(total_sistema), "match_ok": metodo_match_ok, "url_foto": url_foto_guardada, "tipo": "verificado"}
             st.divider()
 
-        st.markdown("#### Métodos Internos (Informativo)")
-        if not metodos_internos: st.info("No hay métodos internos configurados como 'is_cde = true'.")
+        st.markdown("#### Métodos Informativos (No afectan el cuadre)")
+        if not metodos_informativos: st.info("No hay métodos informativos configurados.")
         
-        for metodo in metodos_internos:
+        for metodo in metodos_informativos:
             nombre_metodo = metodo['nombre']
             total_sistema = Decimal(str(totales_sistema_metodos_dict.get(nombre_metodo, 0.0)))
             st.metric(f"Total {nombre_metodo} (Sistema)", f"${total_sistema:,.2f}")
-            verificacion_json_output[nombre_metodo] = {"total_manual": float(total_sistema), "total_sistema": float(total_sistema), "match_ok": True, "url_foto": None, "tipo": "interno"}
+            verificacion_json_output[nombre_metodo] = {"total_manual": float(total_sistema), "total_sistema": float(total_sistema), "match_ok": True, "url_foto": None, "tipo": "informativo"}
 
     submitted = st.form_submit_button("Guardar Conteos y Fotos (Sin Finalizar)", type="secondary")
 
@@ -226,7 +226,7 @@ st.divider()
 # --- 8. SECCIÓN DE FINALIZACIÓN ---
 st.header("Finalización del Cierre CDE")
 if all_match_ok: st.info("Todo cuadrado. El cierre puede ser finalizado.")
-else: st.error("Existen discrepancias en Efectivo o en Métodos Externos. Revisa los conteos.")
+else: st.error("Existen discrepancias en Efectivo o en Métodos a Verificar. Revisa los conteos.")
 
 if st.button("FINALIZAR CIERRE CDE", type="primary", disabled=not all_match_ok, key="btn_finalizar"):
     with st.spinner("Finalizando..."):
