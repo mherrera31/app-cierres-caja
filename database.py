@@ -642,13 +642,14 @@ def obtener_sucursales_cde():
 
 def obtener_metodos_pago_cde():
     """
-    Obtiene solo los métodos de pago marcados con is_cde = true.
-    (Parcheado con verificación 'is None')
+    (Versión Actualizada) Obtiene los métodos de pago marcados como CDE
+    y todas sus columnas de reglas.
     """
     try:
         response = supabase.table('metodos_pago') \
-            .select('id, nombre') \
+            .select('id, nombre, requiere_foto_voucher, tipo, requiere_conteo') \
             .eq('is_cde', True) \
+            .eq('is_activo', True) \
             .neq('nombre', 'Efectivo') \
             .order('nombre') \
             .execute()
@@ -657,7 +658,7 @@ def obtener_metodos_pago_cde():
         return response.data, None
     except Exception as e:
         return [], f"Error al obtener métodos de pago CDE: {e}"
-
+        
 def calcular_totales_pagos_dia_sucursal(fecha_str, sucursal_nombre):
     """
     (Versión Corregida) Calcula la suma de todos los pagos (de la tabla 'pagos') 
