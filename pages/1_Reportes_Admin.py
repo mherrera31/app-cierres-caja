@@ -214,36 +214,36 @@ with tab_op:
             st.json(reporte_info)
 
     def op_mostrar_reporte_compras(cierre_id):
-    """Muestra la tabla de compras informativas registradas en el cierre."""
-    st.subheader("Reporte de Compras (Informativo)")
-    compras_lista, err = database.obtener_compras_del_cierre(cierre_id)
-    if err:
+       """Muestra la tabla de compras informativas registradas en el cierre."""
+       st.subheader("Reporte de Compras (Informativo)")
+       compras_lista, err = database.obtener_compras_del_cierre(cierre_id)
+      if err:
         st.error(f"Error cargando compras: {err}")
-    elif not compras_lista:
+      elif not compras_lista:
         st.info("No se registraron compras en este cierre.")
-    else:
-        df_data = []
-        for c in compras_lista:
-            calculado = float(c.get('valor_calculado', 0))
-            costo = float(c.get('costo_real', 0))
-            df_data.append({
-                "Valor Calculado": calculado,
-                "Costo Real": costo,
-                "Ahorro/Ganancia": calculado - costo,
-                "Notas": c.get('notas', '')
-            })
-        df = pd.DataFrame(df_data)
+      else:
+          df_data = []
+          for c in compras_lista:
+              calculado = float(c.get('valor_calculado', 0))
+              costo = float(c.get('costo_real', 0))
+              df_data.append({
+                  "Valor Calculado": calculado,
+                  "Costo Real": costo,
+                  "Ahorro/Ganancia": calculado - costo,
+                  "Notas": c.get('notas', '')
+              })
+          df = pd.DataFrame(df_data)
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Valor Calculado", f"${df['Valor Calculado'].sum():,.2f}")
-        col2.metric("Total Costo Real", f"${df['Costo Real'].sum():,.2f}")
-        col3.metric("Ahorro Neto Total", f"${df['Ahorro/Ganancia'].sum():,.2f}")
+          col1, col2, col3 = st.columns(3)
+          col1.metric("Total Valor Calculado", f"${df['Valor Calculado'].sum():,.2f}")
+          col2.metric("Total Costo Real", f"${df['Costo Real'].sum():,.2f}")
+          col3.metric("Ahorro Neto Total", f"${df['Ahorro/Ganancia'].sum():,.2f}")
 
-        st.dataframe(df.style.format({
-            "Valor Calculado": "${:,.2f}",
-            "Costo Real": "${:,.2f}",
-            "Ahorro/Ganancia": "${:,.2f}"
-         }), hide_index=True, width='stretch')
+          st.dataframe(df.style.format({
+              "Valor Calculado": "${:,.2f}",
+              "Costo Real": "${:,.2f}",
+              "Ahorro/Ganancia": "${:,.2f}"
+           }), hide_index=True, width='stretch')
 
     def op_mostrar_reporte_gastos(cierre_id):
         st.subheader("Reporte de Gastos")
