@@ -1126,7 +1126,7 @@ def render_tab_verificacion():
                 st.text(f"  - {metodo}: ${total:,.2f}")
         st.markdown("**Otros Registros Informativos**")
         if not datos_verif['otros_informativos']: st.caption("No hay otros registros.")
-        else: st.dataframe(pd.DataFrame(datos_verif['otros_informativos']), hide_index=True, use_container_width=True)
+        else: st.dataframe(pd.DataFrame(datos_verif['otros_informativos']), hide_index=True, width='stretch')
 
     st.divider()
     st.header("Finalización del Cierre")
