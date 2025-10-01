@@ -482,7 +482,7 @@ def cargar_dependencias_delivery():
         
     return opciones_origen, repartidor_cat_id
 
-def def render_tab_delivery():
+def render_tab_delivery():
     # Cargar datos de la sesión y dependencias
     cierre_actual = st.session_state.get('cierre_actual_objeto')
     cierre_id = cierre_actual['id']
