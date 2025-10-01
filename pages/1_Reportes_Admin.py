@@ -208,24 +208,55 @@ with tab_op:
         if not data_dict:
             st.info("No hay datos de verificación guardados.")
             return
-        
-        st.markdown("**Verificación Consolidada**")
-        verificados = data_dict.get('verificacion_consolidada', [])
-        if not verificados: st.markdown("*No se realizaron verificaciones.*")
-        for item in verificados:
-            match_texto = "OK ✔️" if item.get('match_ok') else "FALLO ❌"
-            st.markdown(f"**{item.get('metodo')}**")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Sistema", f"${item.get('total_sistema', 0):,.2f}")
-            col2.metric("Total Reportado", f"${item.get('total_reportado', 0):,.2f}")
-            col3.metric("Estado", match_texto)
-            if item.get('url_foto'): st.markdown(f"**[Ver Foto Adjunta]({item.get('url_foto')})**")
-            st.divider()
 
-        st.markdown("**Reporte Informativo Completo**")
-        reporte_info = data_dict.get('reporte_informativo_completo', {})
-        if not reporte_info: st.markdown("*No hay datos informativos.*")
-        with st.expander("Ver desglose informativo detallado en JSON"):
+        # --- INICIO DE LA MODIFICACIÓN ---
+        # 1. Mostramos la nueva sección de Verificación de Efectivo
+        st.markdown("**Verificación de Efectivo**")
+        verif_efectivo = data_dict.get('verificacion_efectivo')
+
+        if not verif_efectivo:
+            st.info("No hay datos guardados sobre la verificación de efectivo para este cierre (probablemente es un cierre antiguo).")
+        else:
+            match_ok = verif_efectivo.get('match_ok', False)
+            delta_color = "normal" if match_ok else "inverse"
+            delta_text = "CUADRADO" if match_ok else "DESCUADRE"
+        
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Teórico (Sistema)", f"${verif_efectivo.get('total_teorico', 0):,.2f}")
+            col2.metric("Total Físico (Contado)", f"${verif_efectivo.get('total_fisico', 0):,.2f}")
+            col3.metric(
+                "Diferencia",
+                f"${verif_efectivo.get('diferencia', 0):,.2f}",
+                delta=delta_text,
+                delta_color=delta_color
+            )
+        st.divider()
+
+        # 2. El resto de la función se mantiene, con un título actualizado
+        st.markdown("**Verificación Consolidada (Otros Métodos)**")
+        # --- FIN DE LA MODIFICACIÓN ---
+
+    verificados = data_dict.get('verificacion_consolidada', [])
+    if not verificados: 
+        st.markdown("*No se realizaron verificaciones para otros métodos.*")
+    
+    for item in verificados:
+        match_texto = "OK ✔️" if item.get('match_ok') else "FALLO ❌"
+        st.markdown(f"**{item.get('metodo')}**")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Sistema", f"${item.get('total_sistema', 0):,.2f}")
+        col2.metric("Total Reportado", f"${item.get('total_reportado', 0):,.2f}")
+        col3.metric("Estado", match_texto)
+        if item.get('url_foto'): 
+            st.markdown(f"**[Ver Foto Adjunta]({item.get('url_foto')})**")
+        st.divider()
+
+    st.markdown("**Reporte Informativo Completo (JSON)**")
+    reporte_info = data_dict.get('reporte_informativo_completo', {})
+    if not reporte_info: 
+        st.markdown("*No hay datos informativos.*")
+    else:
+        with st.expander("Ver desglose informativo detallado"):
             st.json(reporte_info)
 
     def op_mostrar_reporte_compras(cierre_id):
