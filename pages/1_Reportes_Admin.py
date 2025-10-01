@@ -1,4 +1,4 @@
-            # pages/1_Reportes_Admin.py
+# pages/1_Reportes_Admin.py
 # VERSIÓN CONSOLIDADA Y CORREGIDA (Arregla IndentationError y Deprecation Warnings)
 
 import streamlit as st
@@ -65,7 +65,7 @@ with tab_op:
             return
         df_data = [{"Denominación": k, "Cantidad": v.get('cantidad'), "Subtotal": v.get('subtotal')} for k, v in data_dict.get('detalle', {}).items()]
         df = pd.DataFrame(df_data)
-        st.dataframe(df, hide_index=True, use_container_width=True)
+        st.dataframe(df, hide_index=True, width='stretch') # CORREGIDO
         st.metric(label=f"TOTAL CONTADO ({titulo})", value=f"${float(data_dict.get('total', 0)):,.2f}")
 
     def op_mostrar_reporte_ingresos_adic(cierre_id):
@@ -84,7 +84,7 @@ with tab_op:
             } for i in ingresos_lista]
             df = pd.DataFrame(df_data)
             st.metric("TOTAL INGRESOS ADICIONALES", f"${df['Monto'].sum():,.2f}")
-            st.dataframe(df.style.format({"Monto": "${:,.2f}"}), hide_index=True, use_container_width=True)
+            st.dataframe(df.style.format({"Monto": "${:,.2f}"}), hide_index=True, width='stretch') # CORREGIDO
 
     def op_mostrar_reporte_delivery(cierre_id):
         st.subheader("Reporte de Deliveries")
@@ -116,23 +116,20 @@ with tab_op:
                 "Monto Cobrado": "${:,.2f}",
                 "Costo Repartidor": "${:,.2f}",
                 "Ganancia Neta": "${:,.2f}"
-             }), hide_index=True, use_container_width=True)        
+             }), hide_index=True, width='stretch') # CORREGIDO     
 
     def op_mostrar_tab_resumen(cierre_dict):
        st.subheader("Resumen del Cierre")
     
-    # Muestra la nota de discrepancia por cierre forzado (si existe)
        nota_discrepancia = cierre_dict.get('nota_discrepancia')
        if nota_discrepancia:
            st.warning(f"⚠️ **Nota de Admin por Descuadre:** {nota_discrepancia}")
 
-    # NUEVO: Muestra una nota si el cierre inició con discrepancia
        if cierre_dict.get('discrepancia_saldo_inicial'):
            st.info("ℹ️ Este cierre inició con una discrepancia en el saldo inicial.")
 
        resumen_guardado = cierre_dict.get('resumen_del_dia')
        if not resumen_guardado:
-        # Lógica para cierres con formato antiguo
            st.info("Mostrando datos de un cierre con formato antiguo.")
            a_depositar = float(cierre_dict.get('total_a_depositar') or 0)
            saldo_siguiente = float(cierre_dict.get('saldo_para_siguiente_dia') or 0)
@@ -141,11 +138,8 @@ with tab_op:
            col2.metric("Saldo para Siguiente Día", f"${saldo_siguiente:,.2f}")
            return
 
-    # --- SECCIÓN DE TOTALES MODIFICADA ---
-    
-    # 1. Obtenemos todos los valores necesarios
        depositado = float(cierre_dict.get('total_a_depositar') or 0)
-       saldo_siguiente = float(cierre_dict.get('saldo_para_siguiente_dia') or 0) # <-- Valor añadido
+       saldo_siguiente = float(cierre_dict.get('saldo_para_siguiente_dia') or 0)
        total_rayo = float(resumen_guardado.get('total_rayo_externo', 0))
     
        gastos_lista, _ = database.obtener_gastos_del_cierre(cierre_dict['id'])
@@ -153,19 +147,15 @@ with tab_op:
     
        total_del_dia = total_rayo - total_gastos
 
-    # 2. Mostramos las 5 métricas en columnas
        st.divider()
        col1, col2, col3, col4, col5 = st.columns(5)
        col1.metric("Depositado", f"${depositado:,.2f}")
-       col2.metric("Saldo Día Siguiente", f"${saldo_siguiente:,.2f}") # <-- Métrica añadida
+       col2.metric("Saldo Día Siguiente", f"${saldo_siguiente:,.2f}")
        col3.metric("Total Rayo (Externo)", f"${total_rayo:,.2f}")
        col4.metric("Total Gastos", f"${total_gastos:,.2f}")
        col5.metric("Total del Día", f"${total_del_dia:,.2f}")
        st.divider()
 
-       # --- FIN DE LA NUEVA SECCIÓN ---
-
-       # El resto del desglose se mantiene igual
        st.markdown("#### Ingresos de Rayo (POS)")
        total_rayo_externo = float(resumen_guardado.get('total_rayo_externo', 0))
        st.metric("Total General de Rayo (Externo)", f"${total_rayo_externo:,.2f}")
@@ -198,10 +188,7 @@ with tab_op:
                        for desglose in socio_data.get('desglose', []):
                            st.write(f"{desglose.get('metodo')}: **${float(desglose.get('total', 0)):,.2f}**")
 
-        
-
     def op_mostrar_reporte_verificacion(data_dict):
-        # Esta función ya estaba correcta, la incluimos para que el bloque sea completo
         st.subheader("Reporte de Verificación de Pagos")
         if not data_dict:
             st.info("No hay datos de verificación guardados.")
@@ -227,7 +214,6 @@ with tab_op:
             st.json(reporte_info)
 
     def op_mostrar_reporte_gastos(cierre_id):
-        # Esta función ya estaba correcta, la incluimos para que el bloque sea completo
         st.subheader("Reporte de Gastos")
         gastos_lista, err_g = database.obtener_gastos_del_cierre(cierre_id)
         if err_g: st.error(f"Error: {err_g}")
@@ -235,7 +221,7 @@ with tab_op:
         else:
             df_data = [{"Categoría": g.get('gastos_categorias', {}).get('nombre', 'N/A'), "Monto": g.get('monto', 0), "Notas": g.get('notas', '')} for g in gastos_lista]
             df = pd.DataFrame(df_data)
-            st.dataframe(df, hide_index=True, use_container_width=True)
+            st.dataframe(df, hide_index=True, width='stretch') # CORREGIDO
             st.metric("TOTAL GASTOS", f"${df['Monto'].sum():,.2f}")
                     
     # --- Filtros (Operativo) ---
