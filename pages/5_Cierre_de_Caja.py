@@ -482,7 +482,8 @@ def cargar_dependencias_delivery():
         
     return opciones_origen, repartidor_cat_id
 
-def render_tab_delivery():
+def def render_tab_delivery():
+    # Cargar datos de la sesión y dependencias
     cierre_actual = st.session_state.get('cierre_actual_objeto')
     cierre_id = cierre_actual['id']
     usuario_id = st.session_state['perfil']['id']
@@ -491,6 +492,10 @@ def render_tab_delivery():
 
     opciones_origen, repartidor_cat_id = cargar_dependencias_delivery()
     
+    if not repartidor_cat_id:
+        st.error("Detenido: No se encontró la categoría de gasto 'Repartidores'.")
+        st.stop()
+
     st.subheader("Registrar Nuevo Delivery")
     st.info("Si el 'Costo Repartidor' es mayor a $0, se creará automáticamente un GASTO en efectivo.")
 
@@ -503,24 +508,15 @@ def render_tab_delivery():
     if st.button("Añadir Registro de Delivery", type="primary"):
         with st.spinner("Registrando delivery..."):
             gasto_generado_id = None
-            err_delivery = None
-            
             if costo_repartidor > 0:
                 nota_gasto = f"Delivery (Origen: {origen_sel}) - {notas_delivery}"
-                gasto_data, err_gasto = database.registrar_gasto(
-                    cierre_id, repartidor_cat_id, costo_repartidor, nota_gasto,
-                    usuario_id, sucursal_id, sucursal_nombre
-                )
+                gasto_data, err_gasto = database.registrar_gasto(cierre_id, repartidor_cat_id, costo_repartidor, nota_gasto, usuario_id, sucursal_id, sucursal_nombre)
                 if err_gasto:
                     st.error(f"Error al crear el Gasto asociado: {err_gasto}")
                     st.stop()
                 gasto_generado_id = gasto_data[0]['id']
             
-            _, err_delivery = database.registrar_delivery_completo(
-                cierre_id, usuario_id, sucursal_id,
-                monto_cobrado, costo_repartidor, origen_sel, notas_delivery,
-                gasto_generado_id
-            )
+            _, err_delivery = database.registrar_delivery_completo(cierre_id, usuario_id, sucursal_id, monto_cobrado, costo_repartidor, origen_sel, notas_delivery, gasto_generado_id)
                 
         if err_delivery:
             st.error(f"Error al registrar el reporte de delivery: {err_delivery}")
@@ -532,6 +528,7 @@ def render_tab_delivery():
                 del st.session_state['dashboard_data']
             st.rerun()
 
+    # --- INICIO DEL CÓDIGO AÑADIDO ---
     st.divider()
     st.subheader("Reporte de Ganancias: Deliveries del Día")
     df_deliveries, total_cobrado, total_costo = cargar_deliveries_registrados(cierre_id)
@@ -539,8 +536,50 @@ def render_tab_delivery():
     if df_deliveries.empty:
         st.info("Aún no se han registrado deliveries en este cierre.")
     else:
-        # Lógica de tabla y eliminación se mantiene igual...
-        pass
+        df_deliveries["Eliminar"] = False 
+        
+        column_config_del = {
+            "ID": None, 
+            "Gasto_ID": None,
+            "Origen": st.column_config.TextColumn("Origen", disabled=True),
+            "Cobrado": st.column_config.NumberColumn("Cobrado", format="$ %.2f", disabled=True),
+            "Costo": st.column_config.NumberColumn("Costo (Gasto)", format="$ %.2f", disabled=True),
+            "Ganancia": st.column_config.NumberColumn("Ganancia Neta", format="$ %.2f", disabled=True),
+            "Notas": st.column_config.TextColumn("Notas", disabled=True),
+            "Eliminar": st.column_config.CheckboxColumn("Eliminar", default=False, help="Elimina este registro Y el gasto en efectivo asociado.")
+        }
+
+        edited_df_del = st.data_editor(
+            df_deliveries, 
+            column_config=column_config_del,
+            width='stretch', 
+            hide_index=True, 
+            key="editor_deliveries"
+        )
+
+        if st.button("Eliminar Registros Seleccionados", type="primary", key="btn_eliminar_delivery"):
+            filas_para_eliminar = edited_df_del[edited_df_del["Eliminar"] == True]
+            if filas_para_eliminar.empty:
+                st.info("No se seleccionó ningún registro para eliminar.")
+            else:
+                total_a_eliminar = len(filas_para_eliminar)
+                errores = []
+                with st.spinner(f"Eliminando {total_a_eliminar} registros..."):
+                    for _, fila in filas_para_eliminar.iterrows():
+                        _, err_del = database.eliminar_delivery_completo(fila["ID"], fila["Gasto_ID"])
+                        if err_del:
+                            errores.append(f"Fila ID {fila['ID']}: {err_del}")
+                
+                if errores:
+                    st.error("Ocurrieron errores:")
+                    st.json(errores)
+                else:
+                    st.success(f"¡{total_a_eliminar} registros eliminados!")
+                    cargar_deliveries_registrados.clear()
+                    cargar_gastos_registrados.clear()
+                    if 'dashboard_data' in st.session_state:
+                        del st.session_state['dashboard_data'] 
+                    st.rerun()
 
     st.metric("Total Cobrado (Informativo)", f"${total_cobrado:,.2f}")
     st.metric("Total Pagado a Repartidores (Gasto)", f"${total_costo:,.2f}")
@@ -588,14 +627,17 @@ def render_tab_compras():
     sucursal_id = cierre_actual['sucursal_id']
 
     st.subheader("Registrar Compra (Informativo)")
-    st.info("Este módulo es solo para reportes y no afecta el saldo de caja.")
+    st.info("Este módulo es solo para registro y reportes. **No afecta el saldo de caja**.")
 
-    col1, col2 = st.columns(2)
-    valor_calculado = col1.number_input("Valor Calculado/Estimado ($)", min_value=0.0, step=0.01, format="%.2f", key="compra_calc")
-    costo_real = col2.number_input("Costo Real Pagado ($)", min_value=0.01, step=0.01, format="%.2f", key="compra_real")
-    notas_compra = st.text_input("Notas (Opcional, ej: Artículo, Proveedor)", key="compra_notas")
-    
-    if st.button("Añadir Registro de Compra", type="primary"):
+    with st.form(key="form_nueva_compra", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        valor_calculado = col1.number_input("Valor Calculado/Estimado ($)", min_value=0.0, step=0.01, format="%.2f")
+        costo_real = col2.number_input("Costo Real Pagado ($)", min_value=0.01, step=0.01, format="%.2f")
+        notas_compra = st.text_input("Notas (Opcional, ej: Artículo, Proveedor)")
+        
+        submit_compra = st.form_submit_button("Añadir Registro de Compra", type="primary")
+
+    if submit_compra:
         with st.spinner("Registrando compra..."):
             _, error_db = database.registrar_compra(
                 cierre_id, usuario_id, sucursal_id, 
@@ -608,6 +650,7 @@ def render_tab_compras():
             cargar_compras_registradas.clear()
             st.rerun()
 
+    # --- INICIO DEL CÓDIGO AÑADIDO ---
     st.divider()
     st.subheader("Reporte de Compras Registradas")
     df_compras, total_calc, total_costo = cargar_compras_registradas(cierre_id)
@@ -615,8 +658,45 @@ def render_tab_compras():
     if df_compras.empty:
         st.info("Aún no se han registrado compras en este cierre.")
     else:
-        # Lógica de tabla y eliminación se mantiene igual...
-        pass
+        df_compras["Eliminar"] = False 
+        
+        column_config_compra = {
+            "ID": None, 
+            "Calculado": st.column_config.NumberColumn("Valor Calculado", format="$ %.2f", disabled=True),
+            "Costo Real": st.column_config.NumberColumn("Costo Real", format="$ %.2f", disabled=True),
+            "Ahorro/Ganancia": st.column_config.NumberColumn("Ahorro (Ganancia)", format="$ %.2f", disabled=True),
+            "Notas": st.column_config.TextColumn("Notas", disabled=True),
+            "Eliminar": st.column_config.CheckboxColumn("Eliminar", default=False)
+        }
+
+        edited_df_compra = st.data_editor(
+            df_compras, 
+            column_config=column_config_compra,
+            width='stretch', 
+            hide_index=True, 
+            key="editor_compras"
+        )
+
+        if st.button("Eliminar Compras Seleccionadas", type="primary", key="btn_eliminar_compras"):
+            filas_para_eliminar = edited_df_compra[edited_df_compra["Eliminar"] == True]
+            if filas_para_eliminar.empty:
+                st.info("No se seleccionó ningún registro para eliminar.")
+            else:
+                total_a_eliminar = len(filas_para_eliminar)
+                errores = []
+                with st.spinner(f"Eliminando {total_a_eliminar} registros..."):
+                    for _, fila in filas_para_eliminar.iterrows():
+                        _, err_del = database.eliminar_compra_registro(fila["ID"])
+                        if err_del:
+                            errores.append(f"Fila ID {fila['ID']}: {err_del}")
+                
+                if errores:
+                    st.error("Ocurrieron errores durante la eliminación:")
+                    st.json(errores)
+                else:
+                    st.success(f"¡{total_a_eliminar} registros eliminados con éxito!")
+                    cargar_compras_registradas.clear()
+                    st.rerun()
     
     st.metric("Total Calculado (Estimado)", f"${total_calc:,.2f}")
     st.metric("Total Costo Real", f"${total_costo:,.2f}")
