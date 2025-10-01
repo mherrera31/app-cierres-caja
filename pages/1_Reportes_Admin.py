@@ -236,28 +236,28 @@ with tab_op:
         st.markdown("**Verificación Consolidada (Otros Métodos)**")
         # --- FIN DE LA MODIFICACIÓN ---
 
-    verificados = data_dict.get('verificacion_consolidada', [])
-    if not verificados: 
-        st.markdown("*No se realizaron verificaciones para otros métodos.*")
+        verificados = data_dict.get('verificacion_consolidada', [])
+        if not verificados: 
+            st.markdown("*No se realizaron verificaciones para otros métodos.*")
     
-    for item in verificados:
-        match_texto = "OK ✔️" if item.get('match_ok') else "FALLO ❌"
-        st.markdown(f"**{item.get('metodo')}**")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Sistema", f"${item.get('total_sistema', 0):,.2f}")
-        col2.metric("Total Reportado", f"${item.get('total_reportado', 0):,.2f}")
-        col3.metric("Estado", match_texto)
-        if item.get('url_foto'): 
-            st.markdown(f"**[Ver Foto Adjunta]({item.get('url_foto')})**")
-        st.divider()
+        for item in verificados:
+            match_texto = "OK ✔️" if item.get('match_ok') else "FALLO ❌"
+            st.markdown(f"**{item.get('metodo')}**")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Sistema", f"${item.get('total_sistema', 0):,.2f}")
+            col2.metric("Total Reportado", f"${item.get('total_reportado', 0):,.2f}")
+            col3.metric("Estado", match_texto)
+            if item.get('url_foto'): 
+                st.markdown(f"**[Ver Foto Adjunta]({item.get('url_foto')})**")
+            st.divider()
 
-    st.markdown("**Reporte Informativo Completo (JSON)**")
-    reporte_info = data_dict.get('reporte_informativo_completo', {})
-    if not reporte_info: 
-        st.markdown("*No hay datos informativos.*")
-    else:
-        with st.expander("Ver desglose informativo detallado"):
-            st.json(reporte_info)
+        st.markdown("**Reporte Informativo Completo (JSON)**")
+        reporte_info = data_dict.get('reporte_informativo_completo', {})
+        if not reporte_info: 
+            st.markdown("*No hay datos informativos.*")
+        else:
+            with st.expander("Ver desglose informativo detallado"):
+                st.json(reporte_info)
 
     def op_mostrar_reporte_compras(cierre_id):
        """Muestra la tabla de compras informativas registradas en el cierre."""
