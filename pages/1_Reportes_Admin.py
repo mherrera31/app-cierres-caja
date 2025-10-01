@@ -217,11 +217,11 @@ with tab_op:
        """Muestra la tabla de compras informativas registradas en el cierre."""
        st.subheader("Reporte de Compras (Informativo)")
        compras_lista, err = database.obtener_compras_del_cierre(cierre_id)
-      if err:
+       if err:
         st.error(f"Error cargando compras: {err}")
-      elif not compras_lista:
+       elif not compras_lista:
         st.info("No se registraron compras en este cierre.")
-      else:
+       else:
           df_data = []
           for c in compras_lista:
               calculado = float(c.get('valor_calculado', 0))
