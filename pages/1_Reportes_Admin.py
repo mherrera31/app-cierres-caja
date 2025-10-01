@@ -274,13 +274,44 @@ with tab_op:
                 titulo_expander = f"📅 {cierre['fecha_operacion']} | 👤 {user_nombre} | 🏠 {suc_nombre} | ({cierre['estado']})"
                 
                 with st.expander(titulo_expander):
-                    # --- LÍNEAS MODIFICADAS ---
+                    # --- INICIO DE LA MODIFICACIÓN ---
+                    
+                    st.markdown("**Acciones de Administrador:**")
+                    # Creamos un botón único para cada cierre usando su ID en la 'key'
+                    if st.button("📝 Supervisar / Editar este Cierre", key=f"edit_{cierre['id']}"):
+                        
+                        # Si el cierre está CERRADO, lo reabrimos primero
+                        if cierre['estado'] == 'CERRADO':
+                            with st.spinner("Reabriendo cierre para edición..."):
+                                cierre_reabierto, err_r = database.reabrir_cierre(cierre['id'])
+                                if err_r:
+                                    st.error(f"No se pudo reabrir: {err_r}")
+                                    # Detiene la ejecución si hay un error
+                                    st.stop() 
+                                # Si se reabre con éxito, usamos el objeto actualizado
+                                st.session_state['admin_review_cierre_obj'] = cierre_reabierto
+                            st.success("Cierre reabierto. Cargando en modo edición...")
+                        else:
+                            # Si ya está ABIERTO, simplemente lo cargamos
+                            st.session_state['admin_review_cierre_obj'] = cierre
+                            st.info("Cargando cierre en modo edición...")
+
+                        # Guardamos también el nombre de la sucursal para el selectbox
+                        st.session_state['admin_review_sucursal_nombre'] = suc_nombre
+                        
+                        st.warning("✅ Cierre cargado. Por favor, navega a la página 'Cierre de Caja' desde la barra lateral para continuar.")
+                        st.rerun() # Refrescamos para asegurar que el estado se guarde
+
+                    st.divider()
+
+                    # El resto de las pestañas de visualización se mantienen igual
                     t_res, t_ini, t_fin, t_verif, t_gastos, t_ing_adic, t_del = st.tabs([
                         "Resumen", "Caja Inicial", "Caja Final", "Verificación", "Gastos",
                         "Ingresos Adic.", "Delivery"
                     ])
 
                     with t_res: op_mostrar_tab_resumen(cierre)
+                    # ... (el resto de las pestañas de visualización no cambian) ...
                     with t_ini: op_mostrar_reporte_denominaciones("Detalle Caja Inicial", cierre.get('saldo_inicial_detalle'))
                     with t_fin: op_mostrar_reporte_denominaciones("Detalle Caja Final", cierre.get('saldo_final_detalle'))
                     with t_verif: op_mostrar_reporte_verificacion(cierre.get('verificacion_pagos_detalle'))
