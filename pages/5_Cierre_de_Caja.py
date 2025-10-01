@@ -1020,6 +1020,7 @@ def render_tab_verificacion():
             st.info("No hay pagos con voucher para verificar en este cierre.")
         
         for metodo, total_sistema in sorted(datos_verif['totales_consolidados'].items()):
+            # ... (Lógica del formulario sin cambios) ...
             regla_metodo = datos_verif['reglas_metodos'].get(metodo, {})
             lookup_key = f"consolidado_{metodo.replace(' ', '_')}"
             
@@ -1054,6 +1055,7 @@ def render_tab_verificacion():
 
     if submitted_verif:
         with st.spinner("Guardando verificación y subiendo fotos..."):
+            # ... (Lógica de subida de archivos sin cambios) ...
             for lookup_key, data in widget_data.items():
                 item_a_actualizar = next((item for item in json_verificacion_para_guardar if item.get('lookup_key') == lookup_key), None)
                 archivo_subido = data["file_widget"]
@@ -1066,9 +1068,44 @@ def render_tab_verificacion():
                     if err_subida: st.error(f"FALLO AL SUBIR FOTO para {data['nombre_display']}: {err_subida}")
                     else: item_a_actualizar['url_foto'] = url_publica
             
+            # --- INICIO DE LA MODIFICACIÓN ---
+            
+            # 1. Crear el nuevo objeto para la verificación del efectivo
+            verificacion_efectivo_obj = {
+                "total_teorico": float(saldo_teorico),
+                "total_fisico": float(saldo_fisico),
+                "diferencia": float(diferencia_cash),
+                "match_ok": cash_match_ok
+            }
+
+            # 2. Crear el nuevo desglose de ingresos adicionales en efectivo
+            ingresos_adicionales_raw, _ = database.obtener_ingresos_adicionales_del_cierre(cierre_id)
+            desglose_ingresos_efectivo = []
+            if ingresos_adicionales_raw:
+                for ing in ingresos_adicionales_raw:
+                    if ing.get('metodo_pago', '').lower() == 'efectivo':
+                        desglose_ingresos_efectivo.append({
+                            "socio": ing.get('socios', {}).get('nombre', 'N/A'),
+                            "monto": float(ing.get('monto', 0)),
+                            "notas": ing.get('notas', '')
+                        })
+
+            # 3. Construir el objeto JSON final con la nueva información
             reporte_desglosado_float = {origen: {metodo: float(total) for metodo, total in metodos.items()} for origen, metodos in datos_verif['reporte_desglosado'].items()}
-            reporte_informativo_json = {"desglose_por_origen": reporte_desglosado_float, "otros_registros": datos_verif['otros_informativos']}
-            final_data_json = {"verificacion_consolidada": json_verificacion_para_guardar, "reporte_informativo_completo": reporte_informativo_json}
+            
+            reporte_informativo_json = {
+                "desglose_por_origen": reporte_desglosado_float, 
+                "otros_registros": datos_verif['otros_informativos'],
+                "desglose_ingresos_adicionales_efectivo": desglose_ingresos_efectivo # <-- AÑADIDO
+            }
+            
+            final_data_json = {
+                "verificacion_consolidada": json_verificacion_para_guardar, 
+                "verificacion_efectivo": verificacion_efectivo_obj, # <-- AÑADIDO
+                "reporte_informativo_completo": reporte_informativo_json
+            }
+            
+            # --- FIN DE LA MODIFICACIÓN ---
 
             _, err_db = database.guardar_verificacion_pagos(cierre_id, final_data_json)
             if err_db: st.error(f"Error al guardar datos de verificación en DB: {err_db}")
@@ -1077,6 +1114,7 @@ def render_tab_verificacion():
                 st.session_state.cierre_actual_objeto['verificacion_pagos_detalle'] = final_data_json
                 cargar_datos_verificacion.clear()
                 st.rerun()
+
 
     st.divider()
     st.subheader("3. Reporte Informativo Desglosado")
