@@ -346,8 +346,8 @@ with tab_op:
                         col1, col2 = st.columns(2)
                         with col1:
                             # --- INICIO DE LA CORRECCIÓN ---
-                            # Añadimos ", 0" para que use 0 si el valor es None
-                            monto_a_depositar = cierre.get('total_a_depositar', 0)
+                            # Usamos "or 0" para manejar de forma segura el caso en que el valor sea None
+                            monto_a_depositar = cierre.get('total_a_depositar') or 0
                             st.metric("Monto a Depositar", f"${float(monto_a_depositar):,.2f}")
                             # --- FIN DE LA CORRECCIÓN ---
                         
@@ -356,14 +356,16 @@ with tab_op:
                             if saldo_siguiente_dict and saldo_siguiente_dict.get('detalle'):
                                 with st.expander("Ver desglose del Saldo para Día Siguiente"):
                                     # Ordenar el detalle para una mejor visualización
+                                    # Usamos .get('detalle', {}).items() para seguridad
                                     items_ordenados = sorted(
-                                        saldo_siguiente_dict['detalle'].items(), 
+                                        saldo_siguiente_dict.get('detalle', {}).items(), 
                                         key=lambda item: DENOMINACIONES[[d['nombre'] for d in DENOMINACIONES].index(item[0])]['valor']
                                     )
                                     for den, info in items_ordenados:
                                         st.text(f"- {den}: {info['cantidad']} (${info.get('subtotal', 0):,.2f})")
                             
-                            total_saldo_siguiente = saldo_siguiente_dict.get('total', 0)
+                            # Aplicamos la misma corrección robusta aquí
+                            total_saldo_siguiente = (saldo_siguiente_dict or {}).get('total') or 0
                             st.metric("Total Saldo Día Siguiente", f"${float(total_saldo_siguiente):,.2f}")
 
                     with t_verif: op_mostrar_reporte_verificacion(cierre.get('verificacion_pagos_detalle'))
