@@ -1204,22 +1204,33 @@ if sucursal_seleccionada_nombre == "--- Seleccione una Sucursal ---":
 sucursal_id_actual = opciones_sucursal[sucursal_seleccionada_nombre]
 usuario_id_actual = st.session_state['perfil']['id']
 
-# --- INICIO DEL CARGADOR DE REVISIÓN ADMIN ---
+# --- INICIO DEL NUEVO CARGADOR DE REVISIÓN ADMIN ---
+# Este bloque se ejecuta PRIMERO para ver si un admin está saltando desde el reporte.
 
 if 'admin_review_cierre_obj' in st.session_state and st.session_state.admin_review_cierre_obj is not None:
-    cierre_para_revisar = st.session_state.pop('admin_review_cierre_obj')
+    
+    # Usamos .pop() para que el objeto se cargue solo una vez y se limpie de la memoria.
+    cierre_para_revisar = st.session_state.pop('admin_review_cierre_obj') 
     nombre_sucursal_revisar = st.session_state.pop('admin_review_sucursal_nombre')
     
+    # Forzamos a la sesión a cargar este cierre específico
     st.session_state['cierre_actual_objeto'] = cierre_para_revisar
+    # Forzamos al selectbox a coincidir con la sucursal del cierre que estamos revisando
     st.session_state['cierre_sucursal_seleccionada_nombre'] = nombre_sucursal_revisar
     
-    usuario_del_cierre = cierre_para_revisar.get('perfiles', {}).get('nombre', 'N/A') if cierre_para_revisar.get('perfiles') else 'Usuario Desconocido'
-    st.warning(f"ADMIN: Estás en modo REVISIÓN/EDICIÓN para el cierre abierto de: **{usuario_del_cierre}** en **{nombre_sucursal_revisar}**.")
+    # Obtenemos el nombre del usuario original para mostrar una advertencia clara
+    usuario_id_del_cierre = cierre_para_revisar.get('usuario_id')
+    perfil_original, _ = database.obtener_perfil_usuario(usuario_id_del_cierre)
+    nombre_usuario_original = perfil_original.get('nombre', 'Usuario Desconocido') if perfil_original else 'Usuario Desconocido'
+
+    st.warning(f"**MODO SUPERVISOR:** Estás editando el cierre de **{nombre_usuario_original}** en **{nombre_sucursal_revisar}**.")
+    st.info("Cualquier cambio que guardes o al finalizar, se mantendrá el nombre del usuario original.")
     
+    # Limpiamos el caché del dropdown y re-ejecutamos la página para que todo se cargue correctamente
     cargar_sucursales_data.clear()
     st.rerun()
 
-# --- FIN DEL CARGADOR ---
+# --- FIN DEL NUEVO CARGADOR ---
 
 if st.session_state.get('cierre_actual_objeto') is None:
     st.markdown("---")
@@ -1286,5 +1297,11 @@ if st.session_state.get('cierre_actual_objeto'):
     with tab_del: render_tab_delivery()
     with tab_compra: render_tab_compras()
     with tab4: render_tab_resumen()
-    with tab5: render_tab_caja_final()
+    with tab5: render_tab_cierre_final()
     with tab6: render_tab_verificacion()
+
+
+
+
+
+
