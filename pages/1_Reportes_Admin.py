@@ -239,53 +239,59 @@ with tab_op:
     
     solo_disc_op = st.checkbox("Mostrar solo cierres con discrepancia inicial")
     
+    # 1. Inicializar la memoria para los resultados si no existe
+    if 'cierres_operativos_resultados' not in st.session_state:
+        st.session_state.cierres_operativos_resultados = None
+
+    # 2. El botón de búsqueda ahora SOLO guarda los resultados en la memoria
     if st.button("Buscar Cierres Operativos", type="primary"):
         str_ini_op = fecha_ini_op.strftime("%Y-%m-%d") if fecha_ini_op else None
         str_fin_op = fecha_fin_op.strftime("%Y-%m-%d") if fecha_fin_op else None
         sucursal_id_filtrar_op = opciones_sucursal_op[sel_sucursal_nombre_op]
         usuario_id_filtrar_op = opciones_usuario_op[sel_usuario_nombre_op]
         
-        cierres_op, error_op = database.admin_buscar_cierres_filtrados(
-            fecha_inicio=str_ini_op, fecha_fin=str_fin_op,
-            sucursal_id=sucursal_id_filtrar_op, usuario_id=usuario_id_filtrar_op,
-            solo_discrepancia=solo_disc_op
-        )
+        with st.spinner("Buscando..."):
+            cierres_op, error_op = database.admin_buscar_cierres_filtrados(
+                fecha_inicio=str_ini_op, fecha_fin=str_fin_op,
+                sucursal_id=sucursal_id_filtrar_op, usuario_id=usuario_id_filtrar_op,
+                solo_discrepancia=solo_disc_op
+            )
         
-        if error_op: st.error(f"Error de DB: {error_op}")
-        elif not cierres_op: st.warning("No se encontraron cierres operativos con esos filtros.")
+        if error_op:
+            st.error(f"Error de DB: {error_op}")
+            st.session_state.cierres_operativos_resultados = [] # Guardar lista vacía en caso de error
         else:
-            for cierre in cierres_op:
+            st.session_state.cierres_operativos_resultados = cierres_op # Guardar resultados en memoria
+
+    # 3. La visualización de resultados ahora ocurre FUERA del if del botón
+    # Se ejecuta siempre, leyendo desde la memoria.
+    if st.session_state.cierres_operativos_resultados is not None:
+        if not st.session_state.cierres_operativos_resultados:
+            st.warning("No se encontraron cierres operativos con esos filtros.")
+        else:
+            # Ahora este bucle se dibujará incluso después de presionar "Supervisar"
+            for cierre in st.session_state.cierres_operativos_resultados:
                 user_nombre = cierre.get('perfiles', {}).get('nombre', 'N/A')
                 suc_nombre = cierre.get('sucursales', {}).get('sucursal', 'N/A')
                 titulo_expander = f"📅 {cierre['fecha_operacion']} | 👤 {user_nombre} | 🏠 {suc_nombre} | ({cierre['estado']})"
                 
                 with st.expander(titulo_expander):
-                    # --- INICIO DE LA MODIFICACIÓN ---
-                    
                     st.markdown("**Acciones de Administrador:**")
                     if st.button("📝 Supervisar / Editar este Cierre", key=f"edit_{cierre['id']}"):
-                        
                         cierre_a_cargar = cierre
-                        
-                        # Si el cierre está CERRADO, lo reabrimos primero en la base de datos
                         if cierre['estado'] == 'CERRADO':
-                            with st.spinner("Reabriendo cierre para edición..."):
+                            with st.spinner("Reabriendo cierre..."):
                                 cierre_reabierto, err_r = database.reabrir_cierre(cierre['id'])
                                 if err_r:
                                     st.error(f"No se pudo reabrir: {err_r}")
                                     st.stop()
-                                # Usamos el objeto actualizado y reabierto
                                 cierre_a_cargar = cierre_reabierto
                         
-                        # Guardamos el objeto del cierre y el nombre de la sucursal en la memoria de la sesión
                         st.session_state['admin_review_cierre_obj'] = cierre_a_cargar
                         st.session_state['admin_review_sucursal_nombre'] = suc_nombre
                         
-                        # --- INICIO DE LA MODIFICACIÓN ---
-                        # Navegamos automáticamente a la página de edición.
-                        # Asegúrate de que el nombre del archivo sea correcto.
+                        # Esta línea ahora sí se ejecutará correctamente
                         st.switch_page("pages/5_Cierre_de_Caja.py")
-                        # --- FIN DE LA MODIFICACIÓN ---
 
                     st.divider()
 
