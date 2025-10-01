@@ -263,41 +263,39 @@ with tab_op:
                     # --- INICIO DE LA MODIFICACIÓN ---
                     
                     st.markdown("**Acciones de Administrador:**")
-                    # Creamos un botón único para cada cierre usando su ID en la 'key'
                     if st.button("📝 Supervisar / Editar este Cierre", key=f"edit_{cierre['id']}"):
                         
-                        # Si el cierre está CERRADO, lo reabrimos primero
+                        cierre_a_cargar = cierre
+                        
+                        # Si el cierre está CERRADO, lo reabrimos primero en la base de datos
                         if cierre['estado'] == 'CERRADO':
                             with st.spinner("Reabriendo cierre para edición..."):
                                 cierre_reabierto, err_r = database.reabrir_cierre(cierre['id'])
                                 if err_r:
                                     st.error(f"No se pudo reabrir: {err_r}")
-                                    # Detiene la ejecución si hay un error
-                                    st.stop() 
-                                # Si se reabre con éxito, usamos el objeto actualizado
-                                st.session_state['admin_review_cierre_obj'] = cierre_reabierto
-                            st.success("Cierre reabierto. Cargando en modo edición...")
-                        else:
-                            # Si ya está ABIERTO, simplemente lo cargamos
-                            st.session_state['admin_review_cierre_obj'] = cierre
-                            st.info("Cargando cierre en modo edición...")
-
-                        # Guardamos también el nombre de la sucursal para el selectbox
+                                    st.stop()
+                                # Usamos el objeto actualizado y reabierto
+                                cierre_a_cargar = cierre_reabierto
+                        
+                        # Guardamos el objeto del cierre y el nombre de la sucursal en la memoria de la sesión
+                        st.session_state['admin_review_cierre_obj'] = cierre_a_cargar
                         st.session_state['admin_review_sucursal_nombre'] = suc_nombre
                         
-                        st.warning("✅ Cierre cargado. Por favor, navega a la página 'Cierre de Caja' desde la barra lateral para continuar.")
-                        st.rerun() # Refrescamos para asegurar que el estado se guarde
+                        # --- INICIO DE LA MODIFICACIÓN ---
+                        # Navegamos automáticamente a la página de edición.
+                        # Asegúrate de que el nombre del archivo sea correcto.
+                        st.switch_page("pages/5_Cierre_de_Caja.py")
+                        # --- FIN DE LA MODIFICACIÓN ---
 
                     st.divider()
 
-                    # El resto de las pestañas de visualización se mantienen igual
+                    # Las pestañas de visualización del reporte se mantienen igual
                     t_res, t_ini, t_fin, t_verif, t_gastos, t_ing_adic, t_del = st.tabs([
                         "Resumen", "Caja Inicial", "Caja Final", "Verificación", "Gastos",
                         "Ingresos Adic.", "Delivery"
                     ])
 
                     with t_res: op_mostrar_tab_resumen(cierre)
-                    # ... (el resto de las pestañas de visualización no cambian) ...
                     with t_ini: op_mostrar_reporte_denominaciones("Detalle Caja Inicial", cierre.get('saldo_inicial_detalle'))
                     with t_fin: op_mostrar_reporte_denominaciones("Detalle Caja Final", cierre.get('saldo_final_detalle'))
                     with t_verif: op_mostrar_reporte_verificacion(cierre.get('verificacion_pagos_detalle'))
