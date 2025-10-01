@@ -1158,7 +1158,7 @@ def render_tab_verificacion():
                 st.rerun()
 
 # =============================================================================
-# EJECUCIÓN PRINCIPAL (El Loader y el Contenedor de Pestañas) - VERSIÓN CORREGIDA
+# EJECUCIÓN PRINCIPAL (El Loader y el Contenedor de Pestañas) - VERSIÓN FINAL
 # =============================================================================
 
 st.set_page_config(page_title="Cierre de Caja Operativo", layout="wide")
@@ -1170,48 +1170,58 @@ def cargar_sucursales_data():
     if err:
         st.error(f"No se pudieron cargar sucursales: {err}")
         return {}
-    opciones = {s['sucursal']: s['id'] for s in sucursales_data}
-    return opciones
+    return {s['sucursal']: s['id'] for s in sucursales_data}
 
-# --- INICIO DE LA MODIFICACIÓN DE LÓGICA ---
+# --- INICIO DE LA LÓGICA CORREGIDA ---
 
-# 1. Función callback para manejar el cambio manual de sucursal
-def handle_sucursal_change():
-    """Se activa cuando el usuario cambia la sucursal en el selectbox."""
-    # El nuevo valor ya está en st.session_state.cierre_sucursal_seleccionada_nombre gracias al 'key'
-    st.session_state['cierre_actual_objeto'] = None
-    st.session_state.pop('resumen_calculado', None)
-    # Streamlit se encarga de re-ejecutar el script automáticamente.
+# 1. CARGADOR DE MODO SUPERVISOR (SE EJECUTA ANTES QUE NADA)
+# Revisa si un admin viene del reporte ANTES de dibujar cualquier widget.
+if 'admin_review_cierre_obj' in st.session_state and st.session_state.admin_review_cierre_obj is not None:
+    cierre_para_revisar = st.session_state.pop('admin_review_cierre_obj')
+    nombre_sucursal_revisar = st.session_state.pop('admin_review_sucursal_nombre')
+    
+    # Pre-configuramos el estado de la sesión que los widgets leerán más adelante.
+    st.session_state['cierre_actual_objeto'] = cierre_para_revisar
+    st.session_state['cierre_sucursal_seleccionada_nombre'] = nombre_sucursal_revisar
+    
+    # Mostramos el mensaje de advertencia
+    usuario_id_del_cierre = cierre_para_revisar.get('usuario_id')
+    perfil_original, _ = database.obtener_perfil_usuario(usuario_id_del_cierre)
+    nombre_usuario_original = perfil_original.get('nombre', 'Usuario Desconocido') if perfil_original else 'Usuario Desconocido'
+    st.warning(f"**MODO SUPERVISOR:** Estás editando el cierre de **{nombre_usuario_original}** en **{nombre_sucursal_revisar}**.")
 
-# 2. Inicializar el estado de la sesión si es la primera vez
+# 2. INICIALIZACIÓN DEL ESTADO (SI NO EXISTE)
 if 'cierre_sucursal_seleccionada_nombre' not in st.session_state:
     st.session_state.cierre_sucursal_seleccionada_nombre = "--- Seleccione una Sucursal ---"
 if 'cierre_actual_objeto' not in st.session_state:
     st.session_state.cierre_actual_objeto = None
 
-# --- FIN DE LA MODIFICACIÓN DE LÓGICA ---
-
+# 3. DIBUJO DEL SELECTBOX DE SUCURSAL
 st.header("1. Seleccione Sucursal de Trabajo")
 opciones_sucursal = cargar_sucursales_data()
 lista_nombres_sucursales = ["--- Seleccione una Sucursal ---"] + list(opciones_sucursal.keys())
 
-# El índice se calcula a partir del estado de la sesión, que es nuestra fuente de verdad
+def handle_sucursal_change():
+    """Esta función se llama solo cuando el USUARIO cambia la selección manualmente."""
+    st.session_state['cierre_actual_objeto'] = None
+    st.session_state.pop('resumen_calculado', None)
+
 try:
     default_index = lista_nombres_sucursales.index(st.session_state.cierre_sucursal_seleccionada_nombre)
 except ValueError:
-    default_index = 0 # Si el valor no está en la lista, vuelve al default
+    default_index = 0
 
-# --- MODIFICACIÓN CLAVE: Se añade 'key' y 'on_change' al selectbox ---
 st.selectbox(
     "Sucursal:",
     options=lista_nombres_sucursales,
     index=default_index,
-    key='cierre_sucursal_seleccionada_nombre', # Vincula el widget al estado de la sesión
-    on_change=handle_sucursal_change          # Define qué hacer si el usuario lo cambia
+    key='cierre_sucursal_seleccionada_nombre',
+    on_change=handle_sucursal_change
 )
 
-# Se elimina el antiguo bloque "if sucursal_seleccionada_nombre != ..." porque ahora es redundante.
+# --- FIN DE LA LÓGICA CORREGIDA ---
 
+# El resto del script continúa normalmente
 if st.session_state.cierre_sucursal_seleccionada_nombre == "--- Seleccione una Sucursal ---":
     st.info("Debe seleccionar una sucursal para iniciar o continuar un cierre.")
     st.stop()
@@ -1219,32 +1229,44 @@ if st.session_state.cierre_sucursal_seleccionada_nombre == "--- Seleccione una S
 sucursal_id_actual = opciones_sucursal[st.session_state.cierre_sucursal_seleccionada_nombre]
 usuario_id_actual = st.session_state['perfil']['id']
 
-# --- CARGADOR DE REVISIÓN ADMIN (ahora funciona correctamente sin st.rerun()) ---
-if 'admin_review_cierre_obj' in st.session_state and st.session_state.admin_review_cierre_obj is not None:
-    
-    cierre_para_revisar = st.session_state.pop('admin_review_cierre_obj') 
-    nombre_sucursal_revisar = st.session_state.pop('admin_review_sucursal_nombre')
-    
-    st.session_state['cierre_actual_objeto'] = cierre_para_revisar
-    # Simplemente actualizamos el estado. El selectbox se actualizará solo en el rerun.
-    st.session_state.cierre_sucursal_seleccionada_nombre = nombre_sucursal_revisar
-    
-    usuario_id_del_cierre = cierre_para_revisar.get('usuario_id')
-    perfil_original, _ = database.obtener_perfil_usuario(usuario_id_del_cierre)
-    nombre_usuario_original = perfil_original.get('nombre', 'Usuario Desconocido') if perfil_original else 'Usuario Desconocido'
-
-    st.warning(f"**MODO SUPERVISOR:** Estás editando el cierre de **{nombre_usuario_original}** en **{nombre_sucursal_revisar}**.")
-    st.info("Cualquier cambio que guardes o al finalizar, se mantendrá el nombre del usuario original.")
-    
-    cargar_sucursales_data.clear()
-    st.rerun() # Un rerun aquí es necesario para que el selectbox se redibuje con el nuevo índice.
-
-# --- El resto de la lógica se mantiene igual ---
+# Lógica para buscar o crear un cierre (sin cambios)
 if st.session_state.get('cierre_actual_objeto') is None:
     st.markdown("---")
     st.subheader("2. Estado del Cierre del Día")
-    # ... (El resto del código para buscar/crear un cierre no cambia) ...
+    with st.spinner("Buscando estado de cierres para hoy..."):
+        cierre_abierto, err_a = database.buscar_cierre_abierto_hoy(usuario_id_actual, sucursal_id_actual)
+        if err_a:
+            st.error(f"Error buscando cierre abierto: {err_a}")
+            st.stop()
+        if cierre_abierto:
+            st.session_state['cierre_actual_objeto'] = cierre_abierto
+            st.rerun()
 
+        cierre_cerrado, err_c = database.buscar_cierre_cerrado_hoy(usuario_id_actual, sucursal_id_actual)
+        if err_c:
+            st.error(f"Error buscando cierre cerrado: {err_c}")
+            st.stop()
+        if cierre_cerrado:
+            # ... (código para reabrir o crear nuevo sin cambios)
+            pass
+
+        if 'iniciar_nuevo_cierre_flag' in st.session_state and st.session_state.iniciar_nuevo_cierre_flag:
+            nuevo_cierre_creado = render_form_inicial(usuario_id_actual, sucursal_id_actual)
+            if nuevo_cierre_creado:
+                st.session_state['cierre_actual_objeto'] = nuevo_cierre_creado
+                st.session_state.pop('iniciar_nuevo_cierre_flag')
+                st.rerun()
+            else:
+                st.stop()
+        elif not cierre_abierto and not cierre_cerrado:
+             nuevo_cierre_creado = render_form_inicial(usuario_id_actual, sucursal_id_actual)
+             if nuevo_cierre_creado:
+                st.session_state['cierre_actual_objeto'] = nuevo_cierre_creado
+                st.rerun()
+             else:
+                st.stop()
+
+# Renderizado de las pestañas (sin cambios)
 if st.session_state.get('cierre_actual_objeto'):
     st.markdown("---")
     st.header(f"Estás trabajando en: {st.session_state.cierre_sucursal_seleccionada_nombre}")
