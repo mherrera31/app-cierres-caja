@@ -10,6 +10,21 @@ from datetime import datetime
 from decimal import Decimal
 import json
 
+DENOMINACIONES = [
+    {'nombre': 'Monedas de $0.01', 'valor': 0.01},
+    {'nombre': 'Monedas de $0.05', 'valor': 0.05},
+    {'nombre': 'Monedas de $0.10', 'valor': 0.10},
+    {'nombre': 'Monedas de $0.25', 'valor': 0.25},
+    {'nombre': 'Monedas de $0.50', 'valor': 0.50},
+    {'nombre': 'Monedas de $1', 'valor': 1.00},
+    {'nombre': 'Billetes de $1', 'valor': 1.00},
+    {'nombre': 'Billetes de $5', 'valor': 5.00},
+    {'nombre': 'Billetes de $10', 'valor': 10.00},
+    {'nombre': 'Billetes de $20', 'valor': 20.00},
+    {'nombre': 'Billetes de $50', 'valor': 50.00},
+    {'nombre': 'Billetes de $100', 'valor': 100.00},
+]
+
 # --- BLOQUE DE CORRECCIÓN DE IMPORTPATH ---
 script_dir = os.path.dirname(__file__)
 project_root = os.path.abspath(os.path.join(script_dir, '..'))
