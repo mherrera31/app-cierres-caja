@@ -213,6 +213,38 @@ with tab_op:
         with st.expander("Ver desglose informativo detallado en JSON"):
             st.json(reporte_info)
 
+    def op_mostrar_reporte_compras(cierre_id):
+    """Muestra la tabla de compras informativas registradas en el cierre."""
+    st.subheader("Reporte de Compras (Informativo)")
+    compras_lista, err = database.obtener_compras_del_cierre(cierre_id)
+    if err:
+        st.error(f"Error cargando compras: {err}")
+    elif not compras_lista:
+        st.info("No se registraron compras en este cierre.")
+    else:
+        df_data = []
+        for c in compras_lista:
+            calculado = float(c.get('valor_calculado', 0))
+            costo = float(c.get('costo_real', 0))
+            df_data.append({
+                "Valor Calculado": calculado,
+                "Costo Real": costo,
+                "Ahorro/Ganancia": calculado - costo,
+                "Notas": c.get('notas', '')
+            })
+        df = pd.DataFrame(df_data)
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Valor Calculado", f"${df['Valor Calculado'].sum():,.2f}")
+        col2.metric("Total Costo Real", f"${df['Costo Real'].sum():,.2f}")
+        col3.metric("Ahorro Neto Total", f"${df['Ahorro/Ganancia'].sum():,.2f}")
+
+        st.dataframe(df.style.format({
+            "Valor Calculado": "${:,.2f}",
+            "Costo Real": "${:,.2f}",
+            "Ahorro/Ganancia": "${:,.2f}"
+         }), hide_index=True, width='stretch')
+
     def op_mostrar_reporte_gastos(cierre_id):
         st.subheader("Reporte de Gastos")
         gastos_lista, err_g = database.obtener_gastos_del_cierre(cierre_id)
@@ -296,19 +328,40 @@ with tab_op:
                     st.divider()
 
                     # Las pestañas de visualización del reporte se mantienen igual
-                    t_res, t_ini, t_fin, t_verif, t_gastos, t_ing_adic, t_del = st.tabs([
+                    # 1. Añadimos la nueva pestaña "Compras"
+                    t_res, t_ini, t_fin, t_verif, t_gastos, t_ing_adic, t_del, t_comp = st.tabs([
                         "Resumen", "Caja Inicial", "Caja Final", "Verificación", "Gastos",
-                        "Ingresos Adic.", "Delivery"
+                        "Ingresos Adic.", "Delivery", "Compras"
                     ])
 
                     with t_res: op_mostrar_tab_resumen(cierre)
                     with t_ini: op_mostrar_reporte_denominaciones("Detalle Caja Inicial", cierre.get('saldo_inicial_detalle'))
-                    with t_fin: op_mostrar_reporte_denominaciones("Detalle Caja Final", cierre.get('saldo_final_detalle'))
+                    
+                    # 2. Modificamos la pestaña "Caja Final" para añadir la nueva información
+                    with t_fin: 
+                        op_mostrar_reporte_denominaciones("Detalle Conteo Físico Final", cierre.get('saldo_final_detalle'))
+                        st.divider()
+                        st.subheader("Resultados Calculados")
+
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Monto a Depositar", f"${float(cierre.get('total_a_depositar', 0)):,.2f}")
+                        
+                        with col2:
+                            saldo_siguiente_dict = cierre.get('saldo_siguiente_detalle', {})
+                            if saldo_siguiente_dict and saldo_siguiente_dict.get('detalle'):
+                                with st.expander("Ver desglose del Saldo para Día Siguiente"):
+                                    for den, info in saldo_siguiente_dict['detalle'].items():
+                                        st.text(f"- {den}: {info['cantidad']} (${info.get('subtotal', 0):,.2f})")
+                            st.metric("Total Saldo Día Siguiente", f"${float(saldo_siguiente_dict.get('total', 0)):,.2f}")
+
                     with t_verif: op_mostrar_reporte_verificacion(cierre.get('verificacion_pagos_detalle'))
                     with t_gastos: op_mostrar_reporte_gastos(cierre['id'])
                     with t_ing_adic: op_mostrar_reporte_ingresos_adic(cierre['id'])
                     with t_del: op_mostrar_reporte_delivery(cierre['id'])
-
+                    
+                    # 3. Llamamos a la nueva función en la nueva pestaña
+                    with t_comp: op_mostrar_reporte_compras(cierre['id'])
 
 # ==========================================================
 # PESTAÑA 2: REPORTE CDE (NUEVO MÓDULO)
